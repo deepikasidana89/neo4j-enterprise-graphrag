@@ -1,3 +1,5 @@
+from neo4j_enterprise_graphrag.config import Neo4jConfig
+from neo4j_enterprise_graphrag import repository as repository_module
 from neo4j_enterprise_graphrag.repository import EntityNotFoundError, InMemoryGraphRepository
 from neo4j_enterprise_graphrag.sample_data import build_sample_graph
 from neo4j_enterprise_graphrag.service import EnterpriseGraphRAGService
@@ -186,3 +188,50 @@ def test_retrieve_uses_explicit_service_hint_for_graph_expansion() -> None:
         {"dependency": "Identity Service", "hops": 1},
         {"dependency": "Order Service", "hops": 1},
     ]
+
+
+def test_neo4j_repository_initialization_runs_in_single_write_transaction(monkeypatch) -> None:
+    recorded_calls: list[tuple[str, dict]] = []
+
+    class FakeResult:
+        def consume(self) -> None:
+            return None
+
+    class FakeTransaction:
+        def run(self, statement: str, **parameters):
+            recorded_calls.append((statement, parameters))
+            return FakeResult()
+
+    class FakeSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def execute_write(self, callback, payload, reset):
+            callback(FakeTransaction(), payload, reset)
+
+    class FakeDriver:
+        def session(self, database=None):
+            return FakeSession()
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(repository_module.GraphDatabase, "driver", lambda uri, auth: FakeDriver())
+
+    repository = repository_module.Neo4jGraphRepository(
+        Neo4jConfig("bolt://localhost:7687", "neo4j", "test-password")
+    )
+    repository.initialize_graph(build_sample_graph(), reset=True)
+
+    delete_calls = [call for call in recorded_calls if call[0] == repository_module.cypher.DELETE_SAMPLE_GRAPH]
+    dependency_calls = [
+        call for call in recorded_calls if call[0] == repository_module.cypher.UPSERT_SERVICE_DEPENDENCIES
+    ]
+
+    assert delete_calls
+    assert delete_calls[0][1]["graph_source"] == "neo4j-enterprise-graphrag-sample"
+    assert dependency_calls
+    assert dependency_calls[0][1]["graph_source"] == "neo4j-enterprise-graphrag-sample"

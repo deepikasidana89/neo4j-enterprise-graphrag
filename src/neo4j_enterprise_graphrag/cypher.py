@@ -45,32 +45,28 @@ UPSERT_SERVICE_DEPENDENCIES = """
 UNWIND $service_dependencies AS rel
 MATCH (source:Service {name: rel.source, graph_source: $graph_source})
 MATCH (target:Service {name: rel.target, graph_source: $graph_source})
-MERGE (source)-[dependency:DEPENDS_ON]->(target)
-SET dependency.graph_source = $graph_source
+MERGE (source)-[:DEPENDS_ON {graph_source: $graph_source}]->(target)
 """
 
 UPSERT_APPLICATION_USAGE = """
 UNWIND $application_usage AS rel
 MATCH (application:Application {name: rel.application, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (application)-[usage:USES_SERVICE]->(service)
-SET usage.graph_source = $graph_source
+MERGE (application)-[:USES_SERVICE {graph_source: $graph_source}]->(service)
 """
 
 UPSERT_OWNERSHIPS = """
 UNWIND $ownerships AS rel
 MATCH (team:Team {name: rel.team, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (team)-[ownership:OWNS]->(service)
-SET ownership.graph_source = $graph_source
+MERGE (team)-[:OWNS {graph_source: $graph_source}]->(service)
 """
 
 UPSERT_DOCUMENT_LINKS = """
 UNWIND $document_links AS rel
 MATCH (document:Document {id: rel.document_id, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (document)-[describes:DESCRIBES]->(service)
-SET describes.graph_source = $graph_source
+MERGE (document)-[:DESCRIBES {graph_source: $graph_source}]->(service)
 """
 
 LIST_SERVICES = """
