@@ -73,7 +73,6 @@ def test_cyclic_dependencies_do_not_loop_forever() -> None:
     assert result["multi_hop_dependencies"] == [
         {"dependency": "Service B", "hops": 1},
         {"dependency": "Service C", "hops": 2},
-        {"dependency": "Service A", "hops": 3},
     ]
 
 

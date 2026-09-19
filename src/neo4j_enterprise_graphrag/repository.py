@@ -341,6 +341,8 @@ class InMemoryGraphRepository:
                 continue
             for dependency in sorted(self._dependencies[current]):
                 next_depth = depth + 1
+                if dependency == service_name:
+                    continue
                 existing = distances.get(dependency)
                 if existing is not None and existing <= next_depth:
                     continue
@@ -424,6 +426,8 @@ class InMemoryGraphRepository:
         for owner in graph.ownerships:
             if owner.team not in team_descriptions:
                 raise RepositoryError(f"Unknown team in ownership mapping: {owner.team}")
+            if owner.service not in self._service_names:
+                raise RepositoryError(f"Unknown service in ownership mapping: {owner.service}")
             self._owners[owner.service].append(
                 ServiceOwner(team=owner.team, description=team_descriptions[owner.team])
             )

@@ -45,28 +45,32 @@ UPSERT_SERVICE_DEPENDENCIES = """
 UNWIND $service_dependencies AS rel
 MATCH (source:Service {name: rel.source, graph_source: $graph_source})
 MATCH (target:Service {name: rel.target, graph_source: $graph_source})
-MERGE (source)-[:DEPENDS_ON]->(target)
+MERGE (source)-[dependency:DEPENDS_ON]->(target)
+SET dependency.graph_source = $graph_source
 """
 
 UPSERT_APPLICATION_USAGE = """
 UNWIND $application_usage AS rel
 MATCH (application:Application {name: rel.application, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (application)-[:USES_SERVICE]->(service)
+MERGE (application)-[usage:USES_SERVICE]->(service)
+SET usage.graph_source = $graph_source
 """
 
 UPSERT_OWNERSHIPS = """
 UNWIND $ownerships AS rel
 MATCH (team:Team {name: rel.team, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (team)-[:OWNS]->(service)
+MERGE (team)-[ownership:OWNS]->(service)
+SET ownership.graph_source = $graph_source
 """
 
 UPSERT_DOCUMENT_LINKS = """
 UNWIND $document_links AS rel
 MATCH (document:Document {id: rel.document_id, graph_source: $graph_source})
 MATCH (service:Service {name: rel.service, graph_source: $graph_source})
-MERGE (document)-[:DESCRIBES]->(service)
+MERGE (document)-[describes:DESCRIBES]->(service)
+SET describes.graph_source = $graph_source
 """
 
 LIST_SERVICES = """
@@ -88,7 +92,7 @@ ORDER BY dependency
 
 MULTI_HOP_DEPENDENCIES = """
 MATCH path = (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON*1..6]->(dependency:Service {graph_source: $graph_source})
-WHERE length(path) <= $max_depth
+WHERE length(path) <= $max_depth AND dependency.name <> $service_name
 WITH dependency, min(length(path)) AS hops
 RETURN dependency.name AS dependency, hops
 ORDER BY hops, dependency
