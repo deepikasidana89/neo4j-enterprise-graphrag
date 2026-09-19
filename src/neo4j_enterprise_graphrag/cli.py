@@ -69,8 +69,10 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.command == "owners":
                 payload = service.get_service_owners(args.name)
-            else:
+            elif args.command == "retrieve":
                 payload = service.retrieve(args.question, service_name=args.service, limit=args.limit)
+            else:
+                parser.error(f"Unsupported command: {args.command}")
         finally:
             repository.close()
     except (ConfigurationError, InputValidationError, EntityNotFoundError, RepositoryError) as exc:

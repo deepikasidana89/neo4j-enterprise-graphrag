@@ -12,6 +12,8 @@ from .models import (
     Team,
 )
 
+SAMPLE_GRAPH_SOURCE = "neo4j-enterprise-graphrag-sample"
+
 
 def build_sample_graph() -> EnterpriseGraph:
     return EnterpriseGraph(

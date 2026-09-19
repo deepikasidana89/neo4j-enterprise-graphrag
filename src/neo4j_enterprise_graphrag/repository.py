@@ -18,6 +18,7 @@ from .models import (
     RetrievedDocument,
     ServiceOwner,
 )
+from .sample_data import SAMPLE_GRAPH_SOURCE
 
 LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ class GraphRepository(Protocol):
 class Neo4jGraphRepository:
     def __init__(self, config: Neo4jConfig) -> None:
         self._database = config.database
+        self._graph_source = SAMPLE_GRAPH_SOURCE
         self._driver = GraphDatabase.driver(
             config.uri,
             auth=(config.username, config.password),
@@ -76,26 +78,49 @@ class Neo4jGraphRepository:
                 for statement in cypher.CREATE_CONSTRAINTS:
                     session.run(statement).consume()
                 if reset:
-                    session.run(cypher.DELETE_SAMPLE_GRAPH).consume()
-                session.run(cypher.UPSERT_SERVICES, services=payload["services"]).consume()
+                    session.run(
+                        cypher.DELETE_SAMPLE_GRAPH,
+                        graph_source=self._graph_source,
+                    ).consume()
+                session.run(
+                    cypher.UPSERT_SERVICES,
+                    services=payload["services"],
+                    graph_source=self._graph_source,
+                ).consume()
                 session.run(
                     cypher.UPSERT_APPLICATIONS,
                     applications=payload["applications"],
+                    graph_source=self._graph_source,
                 ).consume()
-                session.run(cypher.UPSERT_TEAMS, teams=payload["teams"]).consume()
-                session.run(cypher.UPSERT_DOCUMENTS, documents=payload["documents"]).consume()
+                session.run(
+                    cypher.UPSERT_TEAMS,
+                    teams=payload["teams"],
+                    graph_source=self._graph_source,
+                ).consume()
+                session.run(
+                    cypher.UPSERT_DOCUMENTS,
+                    documents=payload["documents"],
+                    graph_source=self._graph_source,
+                ).consume()
                 session.run(
                     cypher.UPSERT_SERVICE_DEPENDENCIES,
                     service_dependencies=payload["service_dependencies"],
+                    graph_source=self._graph_source,
                 ).consume()
                 session.run(
                     cypher.UPSERT_APPLICATION_USAGE,
                     application_usage=payload["application_usage"],
+                    graph_source=self._graph_source,
                 ).consume()
-                session.run(cypher.UPSERT_OWNERSHIPS, ownerships=payload["ownerships"]).consume()
+                session.run(
+                    cypher.UPSERT_OWNERSHIPS,
+                    ownerships=payload["ownerships"],
+                    graph_source=self._graph_source,
+                ).consume()
                 session.run(
                     cypher.UPSERT_DOCUMENT_LINKS,
                     document_links=payload["document_links"],
+                    graph_source=self._graph_source,
                 ).consume()
         except Neo4jError as exc:
             raise RepositoryError(f"Failed to initialize sample graph: {exc}") from exc
@@ -202,7 +227,11 @@ class Neo4jGraphRepository:
     def _run_query(self, statement: str, **parameters: object) -> list[dict]:
         try:
             with self._driver.session(database=self._database) as session:
-                result = session.run(statement, **parameters)
+                result = session.run(
+                    statement,
+                    graph_source=self._graph_source,
+                    **parameters,
+                )
                 return [record.data() for record in result]
         except Neo4jError as exc:
             raise RepositoryError(f"Neo4j query failed: {exc}") from exc
@@ -210,34 +239,11 @@ class Neo4jGraphRepository:
 
 class InMemoryGraphRepository:
     def __init__(self, graph: EnterpriseGraph) -> None:
-        self._graph = graph
-        self._service_names = {service.name for service in graph.services}
-        self._documents = {document.id: document for document in graph.documents}
-        self._document_links = defaultdict(set)
-        self._dependencies = defaultdict(set)
-        self._reverse_dependencies = defaultdict(set)
-        self._application_usage = defaultdict(set)
-        self._applications = {}
-        self._owners = defaultdict(list)
-
-        for document_link in graph.document_links:
-            self._document_links[document_link.document_id].add(document_link.service)
-        for dependency in graph.service_dependencies:
-            self._dependencies[dependency.source].add(dependency.target)
-            self._reverse_dependencies[dependency.target].add(dependency.source)
-        for usage in graph.application_usage:
-            self._application_usage[usage.service].add(usage.application)
-        for application in graph.applications:
-            self._applications[application.name] = application
-        for owner in graph.ownerships:
-            team_description = next(
-                team.description for team in graph.teams if team.name == owner.team
-            )
-            self._owners[owner.service].append(
-                ServiceOwner(team=owner.team, description=team_description)
-            )
+        self._load_graph(graph)
 
     def initialize_graph(self, graph: EnterpriseGraph, reset: bool = False) -> float:
+        del reset
+        self._load_graph(graph)
         return 0.0
 
     def list_services(self) -> list[str]:
@@ -366,6 +372,35 @@ class InMemoryGraphRepository:
     def _ensure_service_exists(self, service_name: str) -> None:
         if service_name not in self._service_names:
             raise EntityNotFoundError(f"Service not found: {service_name}")
+
+    def _load_graph(self, graph: EnterpriseGraph) -> None:
+        self._graph = graph
+        self._service_names = {service.name for service in graph.services}
+        self._documents = {document.id: document for document in graph.documents}
+        self._document_links = defaultdict(set)
+        self._dependencies = defaultdict(set)
+        self._reverse_dependencies = defaultdict(set)
+        self._application_usage = defaultdict(set)
+        self._applications = {}
+        self._owners = defaultdict(list)
+
+        team_descriptions = {team.name: team.description for team in graph.teams}
+
+        for document_link in graph.document_links:
+            self._document_links[document_link.document_id].add(document_link.service)
+        for dependency in graph.service_dependencies:
+            self._dependencies[dependency.source].add(dependency.target)
+            self._reverse_dependencies[dependency.target].add(dependency.source)
+        for usage in graph.application_usage:
+            self._application_usage[usage.service].add(usage.application)
+        for application in graph.applications:
+            self._applications[application.name] = application
+        for owner in graph.ownerships:
+            if owner.team not in team_descriptions:
+                raise RepositoryError(f"Unknown team in ownership mapping: {owner.team}")
+            self._owners[owner.service].append(
+                ServiceOwner(team=owner.team, description=team_descriptions[owner.team])
+            )
 
 
 def _elapsed_ms(started: float) -> float:

@@ -6,8 +6,7 @@ CREATE_CONSTRAINTS = [
 ]
 
 DELETE_SAMPLE_GRAPH = """
-MATCH (n)
-WHERE any(label IN labels(n) WHERE label IN ['Service', 'Application', 'Team', 'Document'])
+MATCH (n {graph_source: $graph_source})
 DETACH DELETE n
 """
 
@@ -15,76 +14,80 @@ UPSERT_SERVICES = """
 UNWIND $services AS service
 MERGE (s:Service {name: service.name})
 SET s.description = service.description,
-    s.tier = service.tier
+    s.tier = service.tier,
+    s.graph_source = $graph_source
 """
 
 UPSERT_APPLICATIONS = """
 UNWIND $applications AS application
 MERGE (a:Application {name: application.name})
 SET a.description = application.description,
-    a.customer_facing = application.customer_facing
+    a.customer_facing = application.customer_facing,
+    a.graph_source = $graph_source
 """
 
 UPSERT_TEAMS = """
 UNWIND $teams AS team
 MERGE (t:Team {name: team.name})
-SET t.description = team.description
+SET t.description = team.description,
+    t.graph_source = $graph_source
 """
 
 UPSERT_DOCUMENTS = """
 UNWIND $documents AS document
 MERGE (d:Document {id: document.id})
 SET d.title = document.title,
-    d.content = document.content
+    d.content = document.content,
+    d.graph_source = $graph_source
 """
 
 UPSERT_SERVICE_DEPENDENCIES = """
 UNWIND $service_dependencies AS rel
-MATCH (source:Service {name: rel.source})
-MATCH (target:Service {name: rel.target})
+MATCH (source:Service {name: rel.source, graph_source: $graph_source})
+MATCH (target:Service {name: rel.target, graph_source: $graph_source})
 MERGE (source)-[:DEPENDS_ON]->(target)
 """
 
 UPSERT_APPLICATION_USAGE = """
 UNWIND $application_usage AS rel
-MATCH (application:Application {name: rel.application})
-MATCH (service:Service {name: rel.service})
+MATCH (application:Application {name: rel.application, graph_source: $graph_source})
+MATCH (service:Service {name: rel.service, graph_source: $graph_source})
 MERGE (application)-[:USES_SERVICE]->(service)
 """
 
 UPSERT_OWNERSHIPS = """
 UNWIND $ownerships AS rel
-MATCH (team:Team {name: rel.team})
-MATCH (service:Service {name: rel.service})
+MATCH (team:Team {name: rel.team, graph_source: $graph_source})
+MATCH (service:Service {name: rel.service, graph_source: $graph_source})
 MERGE (team)-[:OWNS]->(service)
 """
 
 UPSERT_DOCUMENT_LINKS = """
 UNWIND $document_links AS rel
-MATCH (document:Document {id: rel.document_id})
-MATCH (service:Service {name: rel.service})
+MATCH (document:Document {id: rel.document_id, graph_source: $graph_source})
+MATCH (service:Service {name: rel.service, graph_source: $graph_source})
 MERGE (document)-[:DESCRIBES]->(service)
 """
 
 LIST_SERVICES = """
-MATCH (service:Service)
+MATCH (service:Service {graph_source: $graph_source})
 RETURN service.name AS name
 ORDER BY name
 """
 
 SERVICE_EXISTS = """
-MATCH (service:Service {name: $service_name})
+MATCH (service:Service {name: $service_name, graph_source: $graph_source})
 RETURN count(service) > 0 AS exists
 """
 
 DIRECT_DEPENDENCIES = """
-MATCH (:Service {name: $service_name})-[:DEPENDS_ON]->(dependency:Service)
+MATCH (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON]->(dependency:Service {graph_source: $graph_source})
 RETURN dependency.name AS dependency
 ORDER BY dependency
 """
 
 MULTI_HOP_DEPENDENCIES = """
-MATCH path = (:Service {name: $service_name})-[:DEPENDS_ON*1..6]->(dependency:Service)
+MATCH path = (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON*1..6]->(dependency:Service {graph_source: $graph_source})
 WHERE length(path) <= $max_depth
 WITH dependency, min(length(path)) AS hops
 RETURN dependency.name AS dependency, hops
@@ -92,9 +95,9 @@ ORDER BY hops, dependency
 """
 
 DOWNSTREAM_APPLICATION_IMPACT = """
-MATCH path = (:Service {name: $service_name})<-[:DEPENDS_ON*0..6]-(dependent:Service)
+MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..6]-(dependent:Service {graph_source: $graph_source})
 WHERE length(path) <= $max_depth
-MATCH (application:Application)-[:USES_SERVICE]->(dependent)
+MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE]->(dependent)
 WHERE application.customer_facing = true
 RETURN DISTINCT
   application.name AS application,
@@ -105,7 +108,7 @@ ORDER BY application, hops, dependent_service
 """
 
 DEPENDENCY_PATH_DISCOVERY = """
-MATCH path = (:Service {name: $source_name})-[:DEPENDS_ON*1..6]->(:Service {name: $target_name})
+MATCH path = (:Service {name: $source_name, graph_source: $graph_source})-[:DEPENDS_ON*1..6]->(:Service {name: $target_name, graph_source: $graph_source})
 WHERE length(path) <= $max_depth
 RETURN [node IN nodes(path) | node.name] AS path, length(path) AS hops
 ORDER BY hops
@@ -113,20 +116,20 @@ LIMIT $limit
 """
 
 SERVICE_OWNERSHIP_LOOKUP = """
-MATCH (team:Team)-[:OWNS]->(:Service {name: $service_name})
+MATCH (team:Team {graph_source: $graph_source})-[:OWNS]->(:Service {name: $service_name, graph_source: $graph_source})
 RETURN team.name AS team, team.description AS description
 ORDER BY team
 """
 
 DOCUMENT_SEARCH = """
-MATCH (document:Document)
+MATCH (document:Document {graph_source: $graph_source})
 WITH document, [
   token IN $tokens
   WHERE token <> '' AND toLower(document.title + ' ' + document.content) CONTAINS token
 ] AS matches
 WITH document, matches, size(matches) AS score
 WHERE score > 0
-OPTIONAL MATCH (document)-[:DESCRIBES]->(service:Service)
+OPTIONAL MATCH (document)-[:DESCRIBES]->(service:Service {graph_source: $graph_source})
 RETURN
   document.id AS id,
   document.title AS title,

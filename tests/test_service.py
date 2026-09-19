@@ -1,3 +1,4 @@
+from neo4j_enterprise_graphrag import cypher
 from neo4j_enterprise_graphrag.repository import EntityNotFoundError, InMemoryGraphRepository
 from neo4j_enterprise_graphrag.sample_data import build_sample_graph
 from neo4j_enterprise_graphrag.service import EnterpriseGraphRAGService
@@ -129,3 +130,10 @@ def test_application_impact_results_include_upstream_dependents() -> None:
         ("Mobile App", "Search Service", ("Search Service", "Identity Service")),
         ("Partner Dashboard", "Billing Service", ("Billing Service", "Identity Service")),
     ]
+
+
+def test_cypher_impact_query_preserves_expected_contract() -> None:
+    assert "<-[:DEPENDS_ON*0..6]-" in cypher.DOWNSTREAM_APPLICATION_IMPACT
+    assert "application.customer_facing = true" in cypher.DOWNSTREAM_APPLICATION_IMPACT
+    assert "[node IN nodes(path) | node.name] AS service_path" in cypher.DOWNSTREAM_APPLICATION_IMPACT
+    assert "graph_source: $graph_source" in cypher.DOWNSTREAM_APPLICATION_IMPACT
