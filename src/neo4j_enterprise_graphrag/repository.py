@@ -385,13 +385,39 @@ class InMemoryGraphRepository:
         self._owners = defaultdict(list)
 
         team_descriptions = {team.name: team.description for team in graph.teams}
+        application_names = {application.name for application in graph.applications}
+        document_ids = {document.id for document in graph.documents}
 
         for document_link in graph.document_links:
+            if document_link.document_id not in document_ids:
+                raise RepositoryError(
+                    f"Unknown document in document link mapping: {document_link.document_id}"
+                )
+            if document_link.service not in self._service_names:
+                raise RepositoryError(
+                    f"Unknown service in document link mapping: {document_link.service}"
+                )
             self._document_links[document_link.document_id].add(document_link.service)
         for dependency in graph.service_dependencies:
+            if dependency.source not in self._service_names:
+                raise RepositoryError(
+                    f"Unknown dependency source service: {dependency.source}"
+                )
+            if dependency.target not in self._service_names:
+                raise RepositoryError(
+                    f"Unknown dependency target service: {dependency.target}"
+                )
             self._dependencies[dependency.source].add(dependency.target)
             self._reverse_dependencies[dependency.target].add(dependency.source)
         for usage in graph.application_usage:
+            if usage.application not in application_names:
+                raise RepositoryError(
+                    f"Unknown application in usage mapping: {usage.application}"
+                )
+            if usage.service not in self._service_names:
+                raise RepositoryError(
+                    f"Unknown service in usage mapping: {usage.service}"
+                )
             self._application_usage[usage.service].add(usage.application)
         for application in graph.applications:
             self._applications[application.name] = application

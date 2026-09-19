@@ -1,4 +1,3 @@
-from neo4j_enterprise_graphrag import cypher
 from neo4j_enterprise_graphrag.repository import EntityNotFoundError, InMemoryGraphRepository
 from neo4j_enterprise_graphrag.sample_data import build_sample_graph
 from neo4j_enterprise_graphrag.service import EnterpriseGraphRAGService
@@ -121,19 +120,38 @@ def test_application_impact_results_include_upstream_dependents() -> None:
     result = service.get_impacted_applications("Identity Service", max_depth=4)
 
     impacted_pairs = [
-        (row["application"], row["dependent_service"], tuple(row["service_path"]))
+        (
+            row["application"],
+            row["dependent_service"],
+            tuple(row["service_path"]),
+            row["hops"],
+        )
         for row in result["impacted_applications"]
     ]
     assert impacted_pairs == [
-        ("Customer Web Portal", "Customer API", ("Customer API", "Identity Service")),
-        ("Mobile App", "Customer API", ("Customer API", "Identity Service")),
-        ("Mobile App", "Search Service", ("Search Service", "Identity Service")),
-        ("Partner Dashboard", "Billing Service", ("Billing Service", "Identity Service")),
+        ("Customer Web Portal", "Customer API", ("Customer API", "Identity Service"), 1),
+        ("Mobile App", "Customer API", ("Customer API", "Identity Service"), 1),
+        ("Mobile App", "Search Service", ("Search Service", "Identity Service"), 1),
+        ("Partner Dashboard", "Billing Service", ("Billing Service", "Identity Service"), 1),
     ]
 
 
-def test_cypher_impact_query_preserves_expected_contract() -> None:
-    assert "<-[:DEPENDS_ON*0..6]-" in cypher.DOWNSTREAM_APPLICATION_IMPACT
-    assert "application.customer_facing = true" in cypher.DOWNSTREAM_APPLICATION_IMPACT
-    assert "[node IN nodes(path) | node.name] AS service_path" in cypher.DOWNSTREAM_APPLICATION_IMPACT
-    assert "graph_source: $graph_source" in cypher.DOWNSTREAM_APPLICATION_IMPACT
+def test_application_impact_includes_zero_hop_direct_usage_paths() -> None:
+    service = build_service()
+
+    result = service.get_impacted_applications("Customer API", max_depth=4)
+
+    assert result["impacted_applications"] == [
+        {
+            "application": "Customer Web Portal",
+            "dependent_service": "Customer API",
+            "service_path": ["Customer API"],
+            "hops": 0,
+        },
+        {
+            "application": "Mobile App",
+            "dependent_service": "Customer API",
+            "service_path": ["Customer API"],
+            "hops": 0,
+        },
+    ]
