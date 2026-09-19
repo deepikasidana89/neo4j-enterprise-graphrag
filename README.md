@@ -162,7 +162,29 @@ neo4j-graphrag retrieve --question "Show documents and graph evidence for Identi
       "application": "Customer Web Portal",
       "dependent_service": "Customer API",
       "service_path": ["Customer API", "Identity Service"],
-      "dependency_paths": [["Customer API", "Identity Service"]],
+      "dependency_paths": [
+        ["Customer API", "Identity Service"],
+        ["Customer API", "Billing Service", "Identity Service"],
+        ["Customer API", "Order Service", "Notification Service", "Identity Service"]
+      ],
+      "hops": 1
+    },
+    {
+      "application": "Mobile App",
+      "dependent_service": "Customer API",
+      "service_path": ["Customer API", "Identity Service"],
+      "dependency_paths": [
+        ["Customer API", "Identity Service"],
+        ["Customer API", "Billing Service", "Identity Service"],
+        ["Customer API", "Order Service", "Notification Service", "Identity Service"]
+      ],
+      "hops": 1
+    },
+    {
+      "application": "Mobile App",
+      "dependent_service": "Search Service",
+      "service_path": ["Search Service", "Identity Service"],
+      "dependency_paths": [["Search Service", "Identity Service"]],
       "hops": 1
     },
     {

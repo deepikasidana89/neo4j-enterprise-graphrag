@@ -207,6 +207,9 @@ class Neo4jGraphRepository:
         reset: bool,
         graph_source: str,
     ) -> None:
+        # Relationship batches depend on the node batches having completed first.
+        # Keep these operations in node-then-relationship order inside one write
+        # transaction so seeding remains deterministic and recoverable.
         if reset:
             tx.run(
                 cypher.DELETE_SAMPLE_GRAPH,
