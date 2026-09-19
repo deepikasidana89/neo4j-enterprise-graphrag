@@ -83,10 +83,10 @@ Set environment variables:
 
 ```bash
 cp .env.example .env
-export NEO4J_URI=bolt://localhost:7687
-export NEO4J_USERNAME=neo4j
-export NEO4J_PASSWORD=please-change-me
-export NEO4J_DATABASE=neo4j
+# edit .env as needed, then export it into your shell
+set -a
+source .env
+set +a
 ```
 
 ## Installation instructions

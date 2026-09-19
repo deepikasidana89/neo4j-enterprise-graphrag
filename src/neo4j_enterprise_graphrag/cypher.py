@@ -98,11 +98,20 @@ DOWNSTREAM_APPLICATION_IMPACT = """
 MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..MAX_DEPTH]-(dependent:Service {graph_source: $graph_source})
 MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE]->(dependent)
 WHERE application.customer_facing = true
-RETURN DISTINCT
+WITH application, dependent, path
+ORDER BY length(path), [node IN nodes(path) | node.name]
+WITH
+  application,
+  dependent,
+  collect({
+    service_path: [node IN nodes(path) | node.name],
+    hops: length(path)
+  })[0] AS shortest_path
+RETURN
   application.name AS application,
   dependent.name AS dependent_service,
-  [node IN nodes(path) | node.name] AS service_path,
-  length(path) AS hops
+  shortest_path.service_path AS service_path,
+  shortest_path.hops AS hops
 ORDER BY application, hops, dependent_service
 """
 DEPENDENCY_PATH_DISCOVERY = """

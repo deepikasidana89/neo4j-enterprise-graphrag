@@ -117,15 +117,17 @@ class EnterpriseGraphRAGService:
             candidate_services.update(document.related_services)
 
         graph_context = []
+        matched_services = []
         for matched_service in sorted(candidate_services):
             try:
                 graph_context.append(self.describe_service(matched_service, max_depth=depth))
+                matched_services.append(matched_service)
             except EntityNotFoundError:
                 LOGGER.warning("Skipping missing service while retrieving graph context: %s", matched_service)
 
         return {
             "question": normalized_question,
-            "matched_services": sorted(candidate_services),
+            "matched_services": matched_services,
             "documents": [asdict(document) for document in documents.value],
             "graph_context": graph_context,
             "retrieval_notes": [
