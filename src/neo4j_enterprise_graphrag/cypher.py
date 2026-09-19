@@ -91,16 +91,15 @@ ORDER BY dependency
 """
 
 MULTI_HOP_DEPENDENCIES = """
-MATCH path = (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON*1..6]->(dependency:Service {graph_source: $graph_source})
-WHERE length(path) <= $max_depth AND dependency.name <> $service_name
+MATCH path = (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON*1..MAX_DEPTH]->(dependency:Service {graph_source: $graph_source})
+WHERE dependency.name <> $service_name
 WITH dependency, min(length(path)) AS hops
 RETURN dependency.name AS dependency, hops
 ORDER BY hops, dependency
 """
 
 DOWNSTREAM_APPLICATION_IMPACT = """
-MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..6]-(dependent:Service {graph_source: $graph_source})
-WHERE length(path) <= $max_depth
+MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..MAX_DEPTH]-(dependent:Service {graph_source: $graph_source})
 MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE]->(dependent)
 WHERE application.customer_facing = true
 RETURN DISTINCT
@@ -110,10 +109,8 @@ RETURN DISTINCT
   length(path) AS hops
 ORDER BY application, hops, dependent_service
 """
-
 DEPENDENCY_PATH_DISCOVERY = """
-MATCH path = (:Service {name: $source_name, graph_source: $graph_source})-[:DEPENDS_ON*1..6]->(:Service {name: $target_name, graph_source: $graph_source})
-WHERE length(path) <= $max_depth
+MATCH path = (:Service {name: $source_name, graph_source: $graph_source})-[:DEPENDS_ON*1..MAX_DEPTH]->(:Service {name: $target_name, graph_source: $graph_source})
 RETURN [node IN nodes(path) | node.name] AS path, length(path) AS hops
 ORDER BY hops
 LIMIT $limit
@@ -143,3 +140,9 @@ RETURN
 ORDER BY score DESC, title ASC
 LIMIT $limit
 """
+
+
+def render_bounded_query(template: str, max_depth: int) -> str:
+    if max_depth < 1 or max_depth > 6:
+        raise ValueError("max_depth must be between 1 and 6.")
+    return template.replace("MAX_DEPTH", str(max_depth))

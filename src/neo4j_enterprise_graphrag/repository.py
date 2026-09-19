@@ -75,53 +75,7 @@ class Neo4jGraphRepository:
 
         try:
             with self._driver.session(database=self._database) as session:
-                for statement in cypher.CREATE_CONSTRAINTS:
-                    session.run(statement).consume()
-                if reset:
-                    session.run(
-                        cypher.DELETE_SAMPLE_GRAPH,
-                        graph_source=self._graph_source,
-                    ).consume()
-                session.run(
-                    cypher.UPSERT_SERVICES,
-                    services=payload["services"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_APPLICATIONS,
-                    applications=payload["applications"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_TEAMS,
-                    teams=payload["teams"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_DOCUMENTS,
-                    documents=payload["documents"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_SERVICE_DEPENDENCIES,
-                    service_dependencies=payload["service_dependencies"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_APPLICATION_USAGE,
-                    application_usage=payload["application_usage"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_OWNERSHIPS,
-                    ownerships=payload["ownerships"],
-                    graph_source=self._graph_source,
-                ).consume()
-                session.run(
-                    cypher.UPSERT_DOCUMENT_LINKS,
-                    document_links=payload["document_links"],
-                    graph_source=self._graph_source,
-                ).consume()
+                session.execute_write(self._initialize_graph_tx, payload, reset)
         except Neo4jError as exc:
             raise RepositoryError(f"Failed to initialize sample graph: {exc}") from exc
 
@@ -144,9 +98,8 @@ class Neo4jGraphRepository:
         self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(
-            cypher.MULTI_HOP_DEPENDENCIES,
+            cypher.render_bounded_query(cypher.MULTI_HOP_DEPENDENCIES, max_depth),
             service_name=service_name,
-            max_depth=max_depth,
         )
         return TimedResult(
             value=[
@@ -160,9 +113,8 @@ class Neo4jGraphRepository:
         self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(
-            cypher.DOWNSTREAM_APPLICATION_IMPACT,
+            cypher.render_bounded_query(cypher.DOWNSTREAM_APPLICATION_IMPACT, max_depth),
             service_name=service_name,
-            max_depth=max_depth,
         )
         impacts = [
             ImpactRecord(
@@ -182,10 +134,9 @@ class Neo4jGraphRepository:
         self._ensure_service_exists(target_name)
         started = time.perf_counter()
         records = self._run_query(
-            cypher.DEPENDENCY_PATH_DISCOVERY,
+            cypher.render_bounded_query(cypher.DEPENDENCY_PATH_DISCOVERY, max_depth),
             source_name=source_name,
             target_name=target_name,
-            max_depth=max_depth,
             limit=limit,
         )
         paths = [DependencyPath(path=record["path"], hops=record["hops"]) for record in records]
@@ -235,6 +186,55 @@ class Neo4jGraphRepository:
                 return [record.data() for record in result]
         except Neo4jError as exc:
             raise RepositoryError(f"Neo4j query failed: {exc}") from exc
+
+    def _initialize_graph_tx(self, tx, payload: dict[str, list[dict]], reset: bool) -> None:
+        for statement in cypher.CREATE_CONSTRAINTS:
+            tx.run(statement).consume()
+        if reset:
+            tx.run(
+                cypher.DELETE_SAMPLE_GRAPH,
+                graph_source=self._graph_source,
+            ).consume()
+        tx.run(
+            cypher.UPSERT_SERVICES,
+            services=payload["services"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_APPLICATIONS,
+            applications=payload["applications"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_TEAMS,
+            teams=payload["teams"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_DOCUMENTS,
+            documents=payload["documents"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_SERVICE_DEPENDENCIES,
+            service_dependencies=payload["service_dependencies"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_APPLICATION_USAGE,
+            application_usage=payload["application_usage"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_OWNERSHIPS,
+            ownerships=payload["ownerships"],
+            graph_source=self._graph_source,
+        ).consume()
+        tx.run(
+            cypher.UPSERT_DOCUMENT_LINKS,
+            document_links=payload["document_links"],
+            graph_source=self._graph_source,
+        ).consume()
 
 
 class InMemoryGraphRepository:
@@ -289,19 +289,21 @@ class InMemoryGraphRepository:
         self._ensure_service_exists(source_name)
         self._ensure_service_exists(target_name)
         found_paths: list[DependencyPath] = []
-        queue: deque[tuple[str, list[str]]] = deque([(source_name, [source_name])])
+        queue: deque[tuple[str, list[str], set[str]]] = deque(
+            [(source_name, [source_name], {source_name})]
+        )
 
         while queue and len(found_paths) < limit:
-            current, path = queue.popleft()
+            current, path, visited = queue.popleft()
             if len(path) - 1 > max_depth:
                 continue
             if current == target_name and len(path) > 1:
                 found_paths.append(DependencyPath(path=path, hops=len(path) - 1))
                 continue
             for dependency in sorted(self._dependencies[current]):
-                if dependency in path:
+                if dependency in visited:
                     continue
-                queue.append((dependency, [*path, dependency]))
+                queue.append((dependency, [*path, dependency], visited | {dependency}))
 
         return TimedResult(value=found_paths, duration_ms=0.0)
 
@@ -353,21 +355,23 @@ class InMemoryGraphRepository:
 
     def _walk_reverse_dependencies(self, service_name: str, max_depth: int) -> dict[str, list[str]]:
         paths: dict[str, list[str]] = {service_name: [service_name]}
-        queue: deque[tuple[str, list[str]]] = deque([(service_name, [service_name])])
+        queue: deque[tuple[str, list[str], set[str]]] = deque(
+            [(service_name, [service_name], {service_name})]
+        )
 
         while queue:
-            current, path = queue.popleft()
+            current, path, visited = queue.popleft()
             if len(path) - 1 >= max_depth:
                 continue
             for dependent in sorted(self._reverse_dependencies[current]):
-                if dependent in path:
+                if dependent in visited:
                     continue
                 next_path = [dependent, *path]
                 existing = paths.get(dependent)
                 if existing is not None and len(existing) <= len(next_path):
                     continue
                 paths[dependent] = next_path
-                queue.append((dependent, next_path))
+                queue.append((dependent, next_path, visited | {dependent}))
 
         return paths
 

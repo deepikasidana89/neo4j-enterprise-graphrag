@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     retrieve_parser.add_argument("--question", required=True, help="Natural language question.")
     retrieve_parser.add_argument("--service", help="Optional service hint for graph expansion.")
     retrieve_parser.add_argument("--limit", type=int, default=3, help="Maximum supporting documents to return.")
+    retrieve_parser.add_argument("--max-depth", type=int, default=4, help="Traversal depth from 1-6.")
 
     return parser
 
@@ -70,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "owners":
                 payload = service.get_service_owners(args.name)
             elif args.command == "retrieve":
-                payload = service.retrieve(args.question, service_name=args.service, limit=args.limit)
+                payload = service.retrieve(
+                    args.question,
+                    service_name=args.service,
+                    limit=args.limit,
+                    max_depth=args.max_depth,
+                )
             else:
                 parser.error(f"Unsupported command: {args.command}")
         finally:

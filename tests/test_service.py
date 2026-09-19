@@ -154,3 +154,35 @@ def test_application_impact_includes_zero_hop_direct_usage_paths() -> None:
             "hops": 0,
         },
     ]
+
+
+def test_retrieve_infers_service_name_from_question() -> None:
+    service = build_service()
+
+    result = service.retrieve(
+        "Which customer-facing applications are affected if Identity Service fails?",
+        max_depth=2,
+    )
+
+    assert "Identity Service" in result["matched_services"]
+    assert result["documents"]
+    assert any(item["service"] == "Identity Service" for item in result["graph_context"])
+
+
+def test_retrieve_uses_explicit_service_hint_for_graph_expansion() -> None:
+    service = build_service()
+
+    result = service.retrieve(
+        "Show outage evidence.",
+        service_name="Customer API",
+        limit=2,
+        max_depth=1,
+    )
+
+    assert result["matched_services"] == ["Customer API"]
+    assert result["graph_context"][0]["service"] == "Customer API"
+    assert result["graph_context"][0]["multi_hop_dependencies"] == [
+        {"dependency": "Billing Service", "hops": 1},
+        {"dependency": "Identity Service", "hops": 1},
+        {"dependency": "Order Service", "hops": 1},
+    ]

@@ -87,12 +87,19 @@ class EnterpriseGraphRAGService:
             "duration_ms": owners.duration_ms,
         }
 
-    def retrieve(self, question: str, service_name: str | None = None, limit: int = 3) -> dict[str, Any]:
+    def retrieve(
+        self,
+        question: str,
+        service_name: str | None = None,
+        limit: int = 3,
+        max_depth: int = 4,
+    ) -> dict[str, Any]:
         normalized_question = question.strip()
         if not normalized_question:
             raise InputValidationError("Question must not be empty.")
 
         capped_limit = _validate_limit(limit)
+        depth = _validate_depth(max_depth)
         provided_service = _validate_name(service_name) if service_name else None
         tokens = _tokenize(normalized_question)
         documents = self._repository.search_documents(tokens, capped_limit)
@@ -112,7 +119,7 @@ class EnterpriseGraphRAGService:
         graph_context = []
         for matched_service in sorted(candidate_services):
             try:
-                graph_context.append(self.describe_service(matched_service, max_depth=4))
+                graph_context.append(self.describe_service(matched_service, max_depth=depth))
             except EntityNotFoundError:
                 LOGGER.warning("Skipping missing service while retrieving graph context: %s", matched_service)
 
