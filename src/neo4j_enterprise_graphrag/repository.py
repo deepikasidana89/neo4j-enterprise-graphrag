@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from neo4j import GraphDatabase
-from neo4j.exceptions import Neo4jError
+from neo4j.exceptions import DriverError, Neo4jError
 
 from .config import Neo4jConfig
 from . import cypher
@@ -78,7 +78,7 @@ class Neo4jGraphRepository:
                 self._ensure_constraints(session)
             with self._driver.session(database=self._database) as session:
                 session.execute_write(self._initialize_graph_tx, payload, reset)
-        except Neo4jError as exc:
+        except (Neo4jError, DriverError) as exc:
             raise RepositoryError(f"Failed to initialize sample graph: {exc}") from exc
 
         return _elapsed_ms(started)
@@ -187,7 +187,7 @@ class Neo4jGraphRepository:
                     **parameters,
                 )
                 return [record.data() for record in result]
-        except Neo4jError as exc:
+        except (Neo4jError, DriverError) as exc:
             raise RepositoryError(f"Neo4j query failed: {exc}") from exc
 
     def _initialize_graph_tx(self, tx, payload: dict[str, list[dict]], reset: bool) -> None:
