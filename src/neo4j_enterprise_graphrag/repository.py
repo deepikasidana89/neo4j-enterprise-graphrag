@@ -77,7 +77,12 @@ class Neo4jGraphRepository:
             with self._driver.session(database=self._database) as session:
                 self._ensure_constraints(session)
             with self._driver.session(database=self._database) as session:
-                session.execute_write(self._initialize_graph_tx, payload, reset)
+                session.execute_write(
+                    self._initialize_graph_tx,
+                    payload,
+                    reset,
+                    self._graph_source,
+                )
         except (Neo4jError, DriverError) as exc:
             raise RepositoryError(f"Failed to initialize sample graph: {exc}") from exc
 
@@ -190,15 +195,22 @@ class Neo4jGraphRepository:
         except (Neo4jError, DriverError) as exc:
             raise RepositoryError(f"Neo4j query failed: {exc}") from exc
 
-    def _initialize_graph_tx(self, tx, payload: dict[str, list[dict]], reset: bool) -> None:
+    def _initialize_graph_tx(
+        self,
+        tx,
+        payload: dict[str, list[dict]],
+        reset: bool,
+        graph_source: str,
+    ) -> None:
         if reset:
             tx.run(
                 cypher.DELETE_SAMPLE_GRAPH,
-                graph_source=self._graph_source,
+                graph_source=graph_source,
             ).consume()
         self._execute_seed_operations(
             tx,
             payload,
+            graph_source,
             operations=(
                 ("services", cypher.UPSERT_SERVICES),
                 ("applications", cypher.UPSERT_APPLICATIONS),
@@ -209,6 +221,7 @@ class Neo4jGraphRepository:
         self._execute_seed_operations(
             tx,
             payload,
+            graph_source,
             operations=(
                 ("service_dependencies", cypher.UPSERT_SERVICE_DEPENDENCIES),
                 ("application_usage", cypher.UPSERT_APPLICATION_USAGE),
@@ -221,6 +234,7 @@ class Neo4jGraphRepository:
         self,
         tx,
         payload: dict[str, list[dict]],
+        graph_source: str,
         operations: tuple[tuple[str, str], ...],
     ) -> None:
         for parameter_name, statement in operations:
@@ -230,7 +244,7 @@ class Neo4jGraphRepository:
                 continue
             tx.run(
                 statement,
-                graph_source=self._graph_source,
+                graph_source=graph_source,
                 **{parameter_name: values},
             ).consume()
 

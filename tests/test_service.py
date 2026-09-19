@@ -285,8 +285,8 @@ def test_neo4j_repository_initialization_creates_constraints_then_writes(monkeyp
             constraint_calls.append(statement)
             return FakeResult()
 
-        def execute_write(self, callback, payload, reset):
-            callback(FakeTransaction(), payload, reset)
+        def execute_write(self, callback, payload, reset, graph_source):
+            callback(FakeTransaction(), payload, reset, graph_source)
 
     class FakeDriver:
         def session(self, database=None):
