@@ -78,7 +78,7 @@ RETURN count(service) > 0 AS exists
 """
 
 DIRECT_DEPENDENCIES = """
-MATCH (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON]->(dependency:Service {graph_source: $graph_source})
+MATCH (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON {graph_source: $graph_source}]->(dependency:Service {graph_source: $graph_source})
 RETURN dependency.name AS dependency
 ORDER BY dependency
 """
@@ -86,6 +86,7 @@ ORDER BY dependency
 MULTI_HOP_DEPENDENCIES = """
 MATCH path = (:Service {name: $service_name, graph_source: $graph_source})-[:DEPENDS_ON*1..MAX_DEPTH]->(dependency:Service {graph_source: $graph_source})
 WHERE dependency.name <> $service_name
+  AND all(rel IN relationships(path) WHERE rel.graph_source = $graph_source)
 WITH dependency, min(length(path)) AS hops
 RETURN dependency.name AS dependency, hops
 ORDER BY hops, dependency
@@ -95,6 +96,7 @@ DOWNSTREAM_APPLICATION_IMPACT = """
 MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..MAX_DEPTH]-(dependent:Service {graph_source: $graph_source})
 MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE]->(dependent)
 WHERE application.customer_facing = true
+  AND all(rel IN relationships(path) WHERE rel.graph_source = $graph_source)
 WITH application, dependent, collect(DISTINCT reverse([node IN nodes(path) | node.name])) AS raw_paths
 UNWIND raw_paths AS service_path
 WITH application, dependent, service_path
@@ -110,13 +112,14 @@ ORDER BY application, hops, dependent_service
 """
 DEPENDENCY_PATH_DISCOVERY = """
 MATCH path = (:Service {name: $source_name, graph_source: $graph_source})-[:DEPENDS_ON*1..MAX_DEPTH]->(:Service {name: $target_name, graph_source: $graph_source})
+WHERE all(rel IN relationships(path) WHERE rel.graph_source = $graph_source)
 RETURN [node IN nodes(path) | node.name] AS path, length(path) AS hops
 ORDER BY hops
 LIMIT $limit
 """
 
 SERVICE_OWNERSHIP_LOOKUP = """
-MATCH (team:Team {graph_source: $graph_source})-[:OWNS]->(:Service {name: $service_name, graph_source: $graph_source})
+MATCH (team:Team {graph_source: $graph_source})-[:OWNS {graph_source: $graph_source}]->(:Service {name: $service_name, graph_source: $graph_source})
 RETURN team.name AS team, team.description AS description
 ORDER BY team
 """
@@ -129,7 +132,7 @@ WITH document, [
 ] AS matches
 WITH document, matches, size(matches) AS score
 WHERE score > 0
-OPTIONAL MATCH (document)-[:DESCRIBES]->(service:Service {graph_source: $graph_source})
+OPTIONAL MATCH (document)-[:DESCRIBES {graph_source: $graph_source}]->(service:Service {graph_source: $graph_source})
 RETURN
   document.id AS id,
   document.title AS title,

@@ -111,6 +111,8 @@ source .env
 set +a
 ```
 
+`NEO4J_GRAPH_SOURCE` is optional and defaults to the sample dataset name. Set it to a unique value when you want to isolate concurrent or side-by-side sample loads in the same Neo4j database.
+
 ## Installation instructions
 
 ```bash

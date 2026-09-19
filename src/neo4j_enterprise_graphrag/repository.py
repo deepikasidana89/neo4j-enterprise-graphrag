@@ -18,8 +18,6 @@ from .models import (
     RetrievedDocument,
     ServiceOwner,
 )
-from .sample_data import SAMPLE_GRAPH_SOURCE
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -60,7 +58,7 @@ class GraphRepository(Protocol):
 class Neo4jGraphRepository:
     def __init__(self, config: Neo4jConfig) -> None:
         self._database = config.database
-        self._graph_source = SAMPLE_GRAPH_SOURCE
+        self._graph_source = config.graph_source
         self._driver = GraphDatabase.driver(
             config.uri,
             auth=(config.username, config.password),

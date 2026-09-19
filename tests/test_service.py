@@ -306,9 +306,24 @@ def test_neo4j_repository_initialization_creates_constraints_then_writes(monkeyp
     dependency_calls = [
         call for call in recorded_calls if call[0] == repository_module.cypher.UPSERT_SERVICE_DEPENDENCIES
     ]
+    relationship_calls = [
+        call
+        for call in recorded_calls
+        if call[0]
+        in {
+            repository_module.cypher.UPSERT_SERVICE_DEPENDENCIES,
+            repository_module.cypher.UPSERT_APPLICATION_USAGE,
+            repository_module.cypher.UPSERT_OWNERSHIPS,
+            repository_module.cypher.UPSERT_DOCUMENT_LINKS,
+        }
+    ]
 
     assert constraint_calls == repository_module.cypher.CREATE_CONSTRAINTS
     assert delete_calls
     assert delete_calls[0][1]["graph_source"] == "neo4j-enterprise-graphrag-sample"
     assert dependency_calls
     assert dependency_calls[0][1]["graph_source"] == "neo4j-enterprise-graphrag-sample"
+    assert all(
+        call[1]["graph_source"] == "neo4j-enterprise-graphrag-sample"
+        for call in relationship_calls
+    )

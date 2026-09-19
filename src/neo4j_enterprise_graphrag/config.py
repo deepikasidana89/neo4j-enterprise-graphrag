@@ -4,6 +4,8 @@ import logging
 import os
 from dataclasses import dataclass
 
+from .sample_data import SAMPLE_GRAPH_SOURCE
+
 
 class ConfigurationError(ValueError):
     """Raised when required runtime configuration is missing."""
@@ -16,6 +18,7 @@ class Neo4jConfig:
     password: str
     database: str = "neo4j"
     log_level: str = "INFO"
+    graph_source: str = SAMPLE_GRAPH_SOURCE
 
     @classmethod
     def from_env(cls) -> "Neo4jConfig":
@@ -24,6 +27,7 @@ class Neo4jConfig:
         password = os.getenv("NEO4J_PASSWORD", "").strip()
         database = os.getenv("NEO4J_DATABASE", "neo4j").strip() or "neo4j"
         log_level = os.getenv("NEO4J_LOG_LEVEL", "INFO").strip() or "INFO"
+        graph_source = os.getenv("NEO4J_GRAPH_SOURCE", SAMPLE_GRAPH_SOURCE).strip() or SAMPLE_GRAPH_SOURCE
 
         missing = [
             name
@@ -39,7 +43,7 @@ class Neo4jConfig:
                 f"Missing required Neo4j environment variables: {', '.join(missing)}"
             )
 
-        return cls(uri, username, password, database, log_level.upper())
+        return cls(uri, username, password, database, log_level.upper(), graph_source)
 
 
 def configure_logging(level: str) -> None:
