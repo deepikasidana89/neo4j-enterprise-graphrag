@@ -11,6 +11,17 @@ from contextlib import closing
 import pytest
 
 from neo4j_enterprise_graphrag.config import Neo4jConfig
+from neo4j_enterprise_graphrag.models import (
+    Application,
+    ApplicationUsage,
+    Document,
+    DocumentLink,
+    EnterpriseGraph,
+    Ownership,
+    Service,
+    ServiceDependency,
+    Team,
+)
 from neo4j_enterprise_graphrag.repository import Neo4jGraphRepository
 from neo4j_enterprise_graphrag.sample_data import SAMPLE_GRAPH_SOURCE, build_sample_graph
 from neo4j_enterprise_graphrag.service import EnterpriseGraphRAGService
@@ -71,9 +82,9 @@ def neo4j_repository() -> Neo4jGraphRepository:
         stderr=subprocess.DEVNULL,
     )
 
-    repository = Neo4jGraphRepository(
-        Neo4jConfig(f"bolt://127.0.0.1:{bolt_port}", "neo4j", password, "neo4j")
-    )
+    config = Neo4jConfig(f"bolt://127.0.0.1:{bolt_port}", "neo4j", password, "neo4j")
+    repository = Neo4jGraphRepository(config)
+    repository._test_config = config  # type: ignore[attr-defined]
 
     deadline = time.time() + 90
     while True:
@@ -173,3 +184,49 @@ def test_neo4j_impact_query_returns_dependency_paths(
     )
     assert cleanup_result[0]["nodes"] > 0
     assert SAMPLE_GRAPH_SOURCE == "neo4j-enterprise-graphrag-sample"
+
+
+def test_neo4j_graph_source_isolation_hides_other_seeded_datasets(
+    neo4j_repository: Neo4jGraphRepository,
+) -> None:
+    alternate_repository = Neo4jGraphRepository(
+        Neo4jConfig(
+            neo4j_repository._test_config.uri,  # type: ignore[attr-defined]
+            neo4j_repository._test_config.username,  # type: ignore[attr-defined]
+            neo4j_repository._test_config.password,  # type: ignore[attr-defined]
+            neo4j_repository._test_config.database,  # type: ignore[attr-defined]
+            neo4j_repository._test_config.log_level,  # type: ignore[attr-defined]
+            "alternate-graph-source",
+        )
+    )
+    alternate_graph = EnterpriseGraph(
+        services=[
+            Service(name="Alternate Service", description="Alt", tier="edge"),
+            Service(name="Shared Downstream", description="Downstream", tier="domain"),
+        ],
+        applications=[
+            Application(name="Alternate App", description="Alt app", customer_facing=True),
+        ],
+        teams=[Team(name="Alternate Team", description="Alt team")],
+        documents=[Document(id="alt-doc", title="Alt doc", content="Alt content")],
+        service_dependencies=[
+            ServiceDependency(source="Alternate Service", target="Shared Downstream"),
+        ],
+        application_usage=[
+            ApplicationUsage(application="Alternate App", service="Alternate Service"),
+        ],
+        ownerships=[Ownership(team="Alternate Team", service="Alternate Service")],
+        document_links=[DocumentLink(document_id="alt-doc", service="Alternate Service")],
+    )
+
+    try:
+        neo4j_repository.initialize_graph(build_sample_graph(), reset=True)
+        alternate_repository.initialize_graph(alternate_graph, reset=True)
+
+        assert "Alternate Service" not in neo4j_repository.list_services()
+        assert alternate_repository.list_services() == [
+            "Alternate Service",
+            "Shared Downstream",
+        ]
+    finally:
+        alternate_repository.close()

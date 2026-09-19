@@ -94,7 +94,7 @@ ORDER BY hops, dependency
 
 DOWNSTREAM_APPLICATION_IMPACT = """
 MATCH path = (:Service {name: $service_name, graph_source: $graph_source})<-[:DEPENDS_ON*0..MAX_DEPTH]-(dependent:Service {graph_source: $graph_source})
-MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE]->(dependent)
+MATCH (application:Application {graph_source: $graph_source})-[:USES_SERVICE {graph_source: $graph_source}]->(dependent)
 WHERE application.customer_facing = true
   AND all(rel IN relationships(path) WHERE rel.graph_source = $graph_source)
 WITH application, dependent, collect(DISTINCT reverse([node IN nodes(path) | node.name])) AS raw_paths
