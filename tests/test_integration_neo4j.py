@@ -7,6 +7,7 @@ import subprocess
 import time
 import uuid
 from contextlib import closing
+from dataclasses import dataclass
 
 import pytest
 
@@ -30,6 +31,12 @@ from neo4j_enterprise_graphrag.service import EnterpriseGraphRAGService
 pytestmark = pytest.mark.integration
 
 
+@dataclass(frozen=True)
+class IntegrationContext:
+    repository: Neo4jGraphRepository
+    config: Neo4jConfig
+
+
 def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -50,7 +57,7 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="module")
-def neo4j_repository() -> Neo4jGraphRepository:
+def integration_context() -> IntegrationContext:
     if os.getenv("RUN_NEO4J_INTEGRATION") != "1":
         pytest.skip("Set RUN_NEO4J_INTEGRATION=1 to run disposable Neo4j integration tests.")
     if not _docker_available():
@@ -84,7 +91,6 @@ def neo4j_repository() -> Neo4jGraphRepository:
 
     config = Neo4jConfig(f"bolt://127.0.0.1:{bolt_port}", "neo4j", password, "neo4j")
     repository = Neo4jGraphRepository(config)
-    repository._test_config = config  # type: ignore[attr-defined]
 
     deadline = time.time() + 90
     while True:
@@ -99,14 +105,18 @@ def neo4j_repository() -> Neo4jGraphRepository:
             time.sleep(2)
 
     try:
-        yield repository
+        yield IntegrationContext(repository=repository, config=config)
     finally:
         repository.close()
         subprocess.run(["docker", "rm", "-f", container_name], check=False)
 
 
-def test_neo4j_seeding_loads_isolated_sample_graph(neo4j_repository: Neo4jGraphRepository) -> None:
+def test_neo4j_seeding_loads_isolated_sample_graph(
+    integration_context: IntegrationContext,
+) -> None:
+    neo4j_repository = integration_context.repository
     neo4j_repository.initialize_graph(build_sample_graph(), reset=True)
+    neo4j_repository.initialize_graph(build_sample_graph(), reset=False)
 
     services = neo4j_repository.list_services()
     direct_dependencies = neo4j_repository.get_direct_dependencies("Customer API").value
@@ -120,8 +130,9 @@ def test_neo4j_seeding_loads_isolated_sample_graph(neo4j_repository: Neo4jGraphR
 
 
 def test_neo4j_impact_query_returns_dependency_paths(
-    neo4j_repository: Neo4jGraphRepository,
+    integration_context: IntegrationContext,
 ) -> None:
+    neo4j_repository = integration_context.repository
     neo4j_repository.initialize_graph(build_sample_graph(), reset=True)
     service = EnterpriseGraphRAGService(neo4j_repository)
 
@@ -176,26 +187,20 @@ def test_neo4j_impact_query_returns_dependency_paths(
         },
     ]
 
-    cleanup_result = neo4j_repository._run_query(
-        """
-        MATCH (n {graph_source: $graph_source})
-        RETURN count(n) AS nodes
-        """,
-    )
-    assert cleanup_result[0]["nodes"] > 0
     assert SAMPLE_GRAPH_SOURCE == "neo4j-enterprise-graphrag-sample"
 
 
 def test_neo4j_graph_source_isolation_hides_other_seeded_datasets(
-    neo4j_repository: Neo4jGraphRepository,
+    integration_context: IntegrationContext,
 ) -> None:
+    neo4j_repository = integration_context.repository
     alternate_repository = Neo4jGraphRepository(
         Neo4jConfig(
-            neo4j_repository._test_config.uri,  # type: ignore[attr-defined]
-            neo4j_repository._test_config.username,  # type: ignore[attr-defined]
-            neo4j_repository._test_config.password,  # type: ignore[attr-defined]
-            neo4j_repository._test_config.database,  # type: ignore[attr-defined]
-            neo4j_repository._test_config.log_level,  # type: ignore[attr-defined]
+            integration_context.config.uri,
+            integration_context.config.username,
+            integration_context.config.password,
+            integration_context.config.database,
+            integration_context.config.log_level,
             "alternate-graph-source",
         )
     )

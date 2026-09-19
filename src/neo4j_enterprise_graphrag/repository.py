@@ -91,21 +91,21 @@ class Neo4jGraphRepository:
         return [record["name"] for record in records]
 
     def get_direct_dependencies(self, service_name: str) -> TimedResult:
-        self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(cypher.DIRECT_DEPENDENCIES, service_name=service_name)
+        self._ensure_service_exists_on_empty(service_name, records)
         return TimedResult(
             value=[record["dependency"] for record in records],
             duration_ms=_elapsed_ms(started),
         )
 
     def get_multi_hop_dependencies(self, service_name: str, max_depth: int) -> TimedResult:
-        self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(
             cypher.render_bounded_query(cypher.MULTI_HOP_DEPENDENCIES, max_depth),
             service_name=service_name,
         )
+        self._ensure_service_exists_on_empty(service_name, records)
         return TimedResult(
             value=[
                 {"dependency": record["dependency"], "hops": record["hops"]}
@@ -115,12 +115,12 @@ class Neo4jGraphRepository:
         )
 
     def get_impacted_applications(self, service_name: str, max_depth: int) -> TimedResult:
-        self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(
             cypher.render_bounded_query(cypher.DOWNSTREAM_APPLICATION_IMPACT, max_depth),
             service_name=service_name,
         )
+        self._ensure_service_exists_on_empty(service_name, records)
         impacts = [
             ImpactRecord(
                 application=record["application"],
@@ -136,8 +136,6 @@ class Neo4jGraphRepository:
     def find_dependency_paths(
         self, source_name: str, target_name: str, max_depth: int, limit: int
     ) -> TimedResult:
-        self._ensure_service_exists(source_name)
-        self._ensure_service_exists(target_name)
         started = time.perf_counter()
         records = self._run_query(
             cypher.render_bounded_query(cypher.DEPENDENCY_PATH_DISCOVERY, max_depth),
@@ -145,16 +143,19 @@ class Neo4jGraphRepository:
             target_name=target_name,
             limit=limit,
         )
+        if not records:
+            self._ensure_service_exists(source_name)
+            self._ensure_service_exists(target_name)
         paths = [DependencyPath(path=record["path"], hops=record["hops"]) for record in records]
         return TimedResult(value=paths, duration_ms=_elapsed_ms(started))
 
     def get_service_owners(self, service_name: str) -> TimedResult:
-        self._ensure_service_exists(service_name)
         started = time.perf_counter()
         records = self._run_query(
             cypher.SERVICE_OWNERSHIP_LOOKUP,
             service_name=service_name,
         )
+        self._ensure_service_exists_on_empty(service_name, records)
         owners = [
             ServiceOwner(team=record["team"], description=record["description"])
             for record in records
@@ -180,6 +181,12 @@ class Neo4jGraphRepository:
         records = self._run_query(cypher.SERVICE_EXISTS, service_name=service_name)
         if not records or not records[0]["exists"]:
             raise EntityNotFoundError(f"Service not found: {service_name}")
+
+    def _ensure_service_exists_on_empty(
+        self, service_name: str, records: list[dict]
+    ) -> None:
+        if not records:
+            self._ensure_service_exists(service_name)
 
     def _run_query(self, statement: str, **parameters: object) -> list[dict]:
         try:
