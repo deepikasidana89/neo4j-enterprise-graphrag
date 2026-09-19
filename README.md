@@ -193,7 +193,7 @@ Run:
 pytest
 ```
 
-The tests use the in-memory repository to validate traversal logic without requiring a running Neo4j instance. Neo4j-backed CLI commands still require a live database and could not be verified end-to-end in this agent environment.
+The tests use the in-memory repository to validate traversal logic without requiring a running Neo4j instance. Neo4j-backed CLI commands still require a live database, and end-to-end Neo4j integration tests are not included yet.
 
 ## Known limitations
 

@@ -1,44 +1,41 @@
 CREATE_CONSTRAINTS = [
-    "CREATE CONSTRAINT service_name_unique IF NOT EXISTS FOR (s:Service) REQUIRE s.name IS UNIQUE",
-    "CREATE CONSTRAINT application_name_unique IF NOT EXISTS FOR (a:Application) REQUIRE a.name IS UNIQUE",
-    "CREATE CONSTRAINT team_name_unique IF NOT EXISTS FOR (t:Team) REQUIRE t.name IS UNIQUE",
-    "CREATE CONSTRAINT document_id_unique IF NOT EXISTS FOR (d:Document) REQUIRE d.id IS UNIQUE",
+    "CREATE CONSTRAINT service_identity_unique IF NOT EXISTS FOR (s:Service) REQUIRE (s.graph_source, s.name) IS UNIQUE",
+    "CREATE CONSTRAINT application_identity_unique IF NOT EXISTS FOR (a:Application) REQUIRE (a.graph_source, a.name) IS UNIQUE",
+    "CREATE CONSTRAINT team_identity_unique IF NOT EXISTS FOR (t:Team) REQUIRE (t.graph_source, t.name) IS UNIQUE",
+    "CREATE CONSTRAINT document_identity_unique IF NOT EXISTS FOR (d:Document) REQUIRE (d.graph_source, d.id) IS UNIQUE",
 ]
 
 DELETE_SAMPLE_GRAPH = """
 MATCH (n {graph_source: $graph_source})
+WHERE any(label IN labels(n) WHERE label IN ['Service', 'Application', 'Team', 'Document'])
 DETACH DELETE n
 """
 
 UPSERT_SERVICES = """
 UNWIND $services AS service
-MERGE (s:Service {name: service.name})
+MERGE (s:Service {graph_source: $graph_source, name: service.name})
 SET s.description = service.description,
-    s.tier = service.tier,
-    s.graph_source = $graph_source
+    s.tier = service.tier
 """
 
 UPSERT_APPLICATIONS = """
 UNWIND $applications AS application
-MERGE (a:Application {name: application.name})
+MERGE (a:Application {graph_source: $graph_source, name: application.name})
 SET a.description = application.description,
-    a.customer_facing = application.customer_facing,
-    a.graph_source = $graph_source
+    a.customer_facing = application.customer_facing
 """
 
 UPSERT_TEAMS = """
 UNWIND $teams AS team
-MERGE (t:Team {name: team.name})
-SET t.description = team.description,
-    t.graph_source = $graph_source
+MERGE (t:Team {graph_source: $graph_source, name: team.name})
+SET t.description = team.description
 """
 
 UPSERT_DOCUMENTS = """
 UNWIND $documents AS document
-MERGE (d:Document {id: document.id})
+MERGE (d:Document {graph_source: $graph_source, id: document.id})
 SET d.title = document.title,
-    d.content = document.content,
-    d.graph_source = $graph_source
+    d.content = document.content
 """
 
 UPSERT_SERVICE_DEPENDENCIES = """

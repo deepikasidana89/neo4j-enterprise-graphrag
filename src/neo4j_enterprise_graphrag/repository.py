@@ -309,7 +309,10 @@ class InMemoryGraphRepository:
 
     def get_service_owners(self, service_name: str) -> TimedResult:
         self._ensure_service_exists(service_name)
-        return TimedResult(value=list(self._owners[service_name]), duration_ms=0.0)
+        return TimedResult(
+            value=sorted(self._owners[service_name], key=lambda owner: owner.team),
+            duration_ms=0.0,
+        )
 
     def search_documents(self, tokens: list[str], limit: int) -> TimedResult:
         normalized_tokens = [token.lower() for token in tokens if token]
