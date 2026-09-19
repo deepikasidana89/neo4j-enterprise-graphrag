@@ -31,6 +31,27 @@ flowchart TD
     Retrieval --> Graph[Service, Application, Team nodes]
 ```
 
+## Knowledge graph visualization
+
+```mermaid
+graph LR
+    App1[Customer Web Portal] -->|USES_SERVICE| API[Customer API]
+    App2[Mobile App] -->|USES_SERVICE| API
+    App2 -->|USES_SERVICE| Search[Search Service]
+    API -->|DEPENDS_ON| Identity[Identity Service]
+    API -->|DEPENDS_ON| Billing[Billing Service]
+    API -->|DEPENDS_ON| Order[Order Service]
+    Order -->|DEPENDS_ON| Inventory[Inventory Service]
+    Order -->|DEPENDS_ON| Notify[Notification Service]
+    Billing -->|DEPENDS_ON| Identity
+    Notify -->|DEPENDS_ON| Identity
+    Team1[Experience Team] -->|OWNS| API
+    Team2[Commerce Team] -->|OWNS| Billing
+    Team3[Platform Team] -->|OWNS| Identity
+    Doc1[Customer API Dependency Overview] -->|DESCRIBES| API
+    Doc2[Identity Service Runbook] -->|DESCRIBES| Identity
+```
+
 ## Knowledge graph schema
 
 ### Node labels
@@ -60,6 +81,7 @@ src/neo4j_enterprise_graphrag/
   service.py
 tests/
   test_service.py
+  test_integration_neo4j.py
 ```
 
 ## Prerequisites
@@ -112,6 +134,7 @@ pip install -e ".[dev]"
    ```bash
    neo4j-graphrag service --name "Customer API"
    neo4j-graphrag impact --name "Identity Service"
+   neo4j-graphrag impact --name "Identity Service" --max-depth 4
    neo4j-graphrag paths --source "Customer API" --target "Identity Service"
    neo4j-graphrag owners --name "Billing Service"
    neo4j-graphrag retrieve --question "Which customer-facing applications are affected if Identity Service fails?"
@@ -137,16 +160,40 @@ neo4j-graphrag retrieve --question "Show documents and graph evidence for Identi
       "application": "Customer Web Portal",
       "dependent_service": "Customer API",
       "service_path": ["Customer API", "Identity Service"],
+      "dependency_paths": [["Customer API", "Identity Service"]],
       "hops": 1
     },
     {
       "application": "Partner Dashboard",
       "dependent_service": "Billing Service",
       "service_path": ["Billing Service", "Identity Service"],
+      "dependency_paths": [["Billing Service", "Identity Service"]],
       "hops": 1
     }
   ],
   "duration_ms": 3.2
+}
+```
+
+## Dependency-path output example
+
+When multiple chains lead to the same impacted application, the CLI returns the shortest `service_path` plus all discovered `dependency_paths`:
+
+```json
+{
+  "application": "Customer App",
+  "dependent_service": "Customer API",
+  "service_path": [
+    "Customer API",
+    "Order Service",
+    "Billing Service",
+    "Identity Service"
+  ],
+  "dependency_paths": [
+    ["Customer API", "Order Service", "Billing Service", "Identity Service"],
+    ["Customer API", "Order Service", "Notification Service", "Identity Service"]
+  ],
+  "hops": 3
 }
 ```
 
@@ -161,7 +208,20 @@ neo4j-graphrag retrieve --question "Show documents and graph evidence for Identi
 
 All queries are defined in `src/neo4j_enterprise_graphrag/cypher.py` and executed with parameters.
 
-## GraphRAG vs traditional vector RAG
+## Implemented graph retrieval vs future GraphRAG extensions
+
+### Implemented today
+
+- keyword-based document retrieval over synthetic `Document` nodes
+- graph traversal over `Service`, `Application`, and `Team` relationships
+- evidence-backed dependency and impact answers with explicit path output
+- no paid LLM or embedding service required
+
+### Not implemented yet
+
+- vector search or embedding indexes
+- LLM answer synthesis over retrieved graph/document context
+- hybrid vector + graph ranking
 
 Traditional vector RAG can retrieve documents that mention a service outage, but it does not naturally explain transitive impact across application and service relationships.
 
@@ -193,20 +253,26 @@ Run:
 pytest
 ```
 
-The tests use the in-memory repository to validate traversal logic without requiring a running Neo4j instance. Neo4j-backed CLI commands still require a live database, and end-to-end Neo4j integration tests are not included yet.
+Optional disposable-Neo4j integration tests:
+
+```bash
+RUN_NEO4J_INTEGRATION=1 pytest
+```
+
+The default suite validates traversal logic and service behavior with the in-memory repository. The optional integration suite starts a disposable Neo4j container with Docker and verifies graph seeding plus impact-query behavior against the live driver.
 
 ## Known limitations
 
 - The CLI does not infer complex entities beyond exact service-name matches in questions.
 - The retrieval demo uses keyword overlap rather than embeddings.
-- The provided tests validate traversal logic, not a live Neo4j deployment.
+- Disposable Neo4j integration tests require Docker and are skipped unless explicitly enabled.
 
 ## Future enhancements
 
 - optional vector indexing and embedding-based retrieval
 - richer natural language entity extraction
 - graph visualization output for impact paths
-- integration tests against a disposable Neo4j instance
+- LLM-generated summaries grounded in graph traversal results
 
 ## Security and data hygiene
 

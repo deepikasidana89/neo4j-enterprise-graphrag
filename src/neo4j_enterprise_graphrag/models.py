@@ -84,6 +84,7 @@ class ImpactRecord:
     application: str
     dependent_service: str
     service_path: list[str]
+    dependency_paths: list[list[str]]
     hops: int
 
 

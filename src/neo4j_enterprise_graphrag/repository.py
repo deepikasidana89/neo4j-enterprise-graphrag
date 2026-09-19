@@ -75,6 +75,8 @@ class Neo4jGraphRepository:
 
         try:
             with self._driver.session(database=self._database) as session:
+                self._ensure_constraints(session)
+            with self._driver.session(database=self._database) as session:
                 session.execute_write(self._initialize_graph_tx, payload, reset)
         except Neo4jError as exc:
             raise RepositoryError(f"Failed to initialize sample graph: {exc}") from exc
@@ -121,6 +123,7 @@ class Neo4jGraphRepository:
                 application=record["application"],
                 dependent_service=record["dependent_service"],
                 service_path=record["service_path"],
+                dependency_paths=record["dependency_paths"],
                 hops=record["hops"],
             )
             for record in records
@@ -188,53 +191,52 @@ class Neo4jGraphRepository:
             raise RepositoryError(f"Neo4j query failed: {exc}") from exc
 
     def _initialize_graph_tx(self, tx, payload: dict[str, list[dict]], reset: bool) -> None:
-        for statement in cypher.CREATE_CONSTRAINTS:
-            tx.run(statement).consume()
         if reset:
             tx.run(
                 cypher.DELETE_SAMPLE_GRAPH,
                 graph_source=self._graph_source,
             ).consume()
-        tx.run(
-            cypher.UPSERT_SERVICES,
-            services=payload["services"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_APPLICATIONS,
-            applications=payload["applications"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_TEAMS,
-            teams=payload["teams"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_DOCUMENTS,
-            documents=payload["documents"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_SERVICE_DEPENDENCIES,
-            service_dependencies=payload["service_dependencies"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_APPLICATION_USAGE,
-            application_usage=payload["application_usage"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_OWNERSHIPS,
-            ownerships=payload["ownerships"],
-            graph_source=self._graph_source,
-        ).consume()
-        tx.run(
-            cypher.UPSERT_DOCUMENT_LINKS,
-            document_links=payload["document_links"],
-            graph_source=self._graph_source,
-        ).consume()
+        self._execute_seed_operations(
+            tx,
+            payload,
+            operations=(
+                ("services", cypher.UPSERT_SERVICES),
+                ("applications", cypher.UPSERT_APPLICATIONS),
+                ("teams", cypher.UPSERT_TEAMS),
+                ("documents", cypher.UPSERT_DOCUMENTS),
+            ),
+        )
+        self._execute_seed_operations(
+            tx,
+            payload,
+            operations=(
+                ("service_dependencies", cypher.UPSERT_SERVICE_DEPENDENCIES),
+                ("application_usage", cypher.UPSERT_APPLICATION_USAGE),
+                ("ownerships", cypher.UPSERT_OWNERSHIPS),
+                ("document_links", cypher.UPSERT_DOCUMENT_LINKS),
+            ),
+        )
+
+    def _execute_seed_operations(
+        self,
+        tx,
+        payload: dict[str, list[dict]],
+        operations: tuple[tuple[str, str], ...],
+    ) -> None:
+        for parameter_name, statement in operations:
+            values = payload[parameter_name]
+            if not values:
+                LOGGER.info("Skipping empty seed batch for %s", parameter_name)
+                continue
+            tx.run(
+                statement,
+                graph_source=self._graph_source,
+                **{parameter_name: values},
+            ).consume()
+
+    def _ensure_constraints(self, session) -> None:
+        for statement in cypher.CREATE_CONSTRAINTS:
+            session.run(statement).consume()
 
 
 class InMemoryGraphRepository:
@@ -267,7 +269,12 @@ class InMemoryGraphRepository:
         paths = self._walk_reverse_dependencies(service_name, max_depth)
         impacts: list[ImpactRecord] = []
 
-        for dependent_service, service_path in sorted(paths.items()):
+        for dependent_service, dependency_paths in sorted(paths.items()):
+            ordered_paths = sorted(
+                (list(path) for path in dependency_paths),
+                key=lambda path: (len(path), path),
+            )
+            service_path = ordered_paths[0]
             for application_name in sorted(self._application_usage[dependent_service]):
                 application = self._applications[application_name]
                 if not application.customer_facing:
@@ -277,6 +284,7 @@ class InMemoryGraphRepository:
                         application=application_name,
                         dependent_service=dependent_service,
                         service_path=service_path,
+                        dependency_paths=ordered_paths,
                         hops=max(len(service_path) - 1, 0),
                     )
                 )
@@ -356,8 +364,8 @@ class InMemoryGraphRepository:
 
         return distances
 
-    def _walk_reverse_dependencies(self, service_name: str, max_depth: int) -> dict[str, list[str]]:
-        paths: dict[str, list[str]] = {service_name: [service_name]}
+    def _walk_reverse_dependencies(self, service_name: str, max_depth: int) -> dict[str, set[tuple[str, ...]]]:
+        paths: dict[str, set[tuple[str, ...]]] = {service_name: {(service_name,)}}
         queue: deque[tuple[str, list[str], set[str]]] = deque(
             [(service_name, [service_name], {service_name})]
         )
@@ -370,10 +378,7 @@ class InMemoryGraphRepository:
                 if dependent in visited:
                     continue
                 next_path = [dependent, *path]
-                existing = paths.get(dependent)
-                if existing is not None and len(existing) <= len(next_path):
-                    continue
-                paths[dependent] = next_path
+                paths.setdefault(dependent, set()).add(tuple(next_path))
                 queue.append((dependent, next_path, visited | {dependent}))
 
         return paths

@@ -110,6 +110,7 @@ def test_duplicate_relationships_are_deduplicated() -> None:
             "application": "Customer App",
             "dependent_service": "Service A",
             "service_path": ["Service A"],
+            "dependency_paths": [["Service A"]],
             "hops": 0,
         }
     ]
@@ -135,6 +136,16 @@ def test_application_impact_results_include_upstream_dependents() -> None:
         ("Mobile App", "Search Service", ("Search Service", "Identity Service"), 1),
         ("Partner Dashboard", "Billing Service", ("Billing Service", "Identity Service"), 1),
     ]
+    assert result["impacted_applications"][0]["dependency_paths"] == [
+        ["Customer API", "Identity Service"],
+        ["Customer API", "Billing Service", "Identity Service"],
+        [
+            "Customer API",
+            "Order Service",
+            "Notification Service",
+            "Identity Service",
+        ],
+    ]
 
 
 def test_application_impact_includes_zero_hop_direct_usage_paths() -> None:
@@ -147,14 +158,74 @@ def test_application_impact_includes_zero_hop_direct_usage_paths() -> None:
             "application": "Customer Web Portal",
             "dependent_service": "Customer API",
             "service_path": ["Customer API"],
+            "dependency_paths": [["Customer API"]],
             "hops": 0,
         },
         {
             "application": "Mobile App",
             "dependent_service": "Customer API",
             "service_path": ["Customer API"],
+            "dependency_paths": [["Customer API"]],
             "hops": 0,
         },
+    ]
+
+
+def test_multiple_dependency_paths_to_same_application_are_returned() -> None:
+    graph = EnterpriseGraph(
+        services=[
+            Service(name="Identity Service", description="Identity", tier="platform"),
+            Service(name="Billing Service", description="Billing", tier="domain"),
+            Service(name="Notification Service", description="Notification", tier="shared"),
+            Service(name="Order Service", description="Order", tier="domain"),
+            Service(name="Customer API", description="API", tier="edge"),
+        ],
+        applications=[
+            Application(name="Customer App", description="App", customer_facing=True),
+        ],
+        teams=[Team(name="Core Team", description="Core ownership")],
+        documents=[Document(id="doc-1", title="Paths", content="Multiple paths")],
+        service_dependencies=[
+            ServiceDependency(source="Billing Service", target="Identity Service"),
+            ServiceDependency(source="Notification Service", target="Identity Service"),
+            ServiceDependency(source="Order Service", target="Billing Service"),
+            ServiceDependency(source="Order Service", target="Notification Service"),
+            ServiceDependency(source="Customer API", target="Order Service"),
+        ],
+        application_usage=[ApplicationUsage(application="Customer App", service="Customer API")],
+        ownerships=[Ownership(team="Core Team", service="Customer API")],
+        document_links=[DocumentLink(document_id="doc-1", service="Customer API")],
+    )
+    service = EnterpriseGraphRAGService(InMemoryGraphRepository(graph))
+
+    result = service.get_impacted_applications("Identity Service", max_depth=5)
+
+    assert result["impacted_applications"] == [
+        {
+            "application": "Customer App",
+            "dependent_service": "Customer API",
+            "service_path": [
+                "Customer API",
+                "Order Service",
+                "Billing Service",
+                "Identity Service",
+            ],
+            "dependency_paths": [
+                [
+                    "Customer API",
+                    "Order Service",
+                    "Billing Service",
+                    "Identity Service",
+                ],
+                [
+                    "Customer API",
+                    "Order Service",
+                    "Notification Service",
+                    "Identity Service",
+                ],
+            ],
+            "hops": 3,
+        }
     ]
 
 
@@ -190,8 +261,9 @@ def test_retrieve_uses_explicit_service_hint_for_graph_expansion() -> None:
     ]
 
 
-def test_neo4j_repository_initialization_runs_in_single_write_transaction(monkeypatch) -> None:
+def test_neo4j_repository_initialization_creates_constraints_then_writes(monkeypatch) -> None:
     recorded_calls: list[tuple[str, dict]] = []
+    constraint_calls: list[str] = []
 
     class FakeResult:
         def consume(self) -> None:
@@ -208,6 +280,10 @@ def test_neo4j_repository_initialization_runs_in_single_write_transaction(monkey
 
         def __exit__(self, exc_type, exc, tb) -> None:
             return None
+
+        def run(self, statement: str, **parameters):
+            constraint_calls.append(statement)
+            return FakeResult()
 
         def execute_write(self, callback, payload, reset):
             callback(FakeTransaction(), payload, reset)
@@ -231,6 +307,7 @@ def test_neo4j_repository_initialization_runs_in_single_write_transaction(monkey
         call for call in recorded_calls if call[0] == repository_module.cypher.UPSERT_SERVICE_DEPENDENCIES
     ]
 
+    assert constraint_calls == repository_module.cypher.CREATE_CONSTRAINTS
     assert delete_calls
     assert delete_calls[0][1]["graph_source"] == "neo4j-enterprise-graphrag-sample"
     assert dependency_calls

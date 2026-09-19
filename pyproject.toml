@@ -25,6 +25,9 @@ neo4j-graphrag = "neo4j_enterprise_graphrag.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "integration: tests that require a disposable Neo4j instance",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
