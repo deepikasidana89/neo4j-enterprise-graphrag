@@ -159,6 +159,21 @@ def test_retrieve_command(monkeypatch) -> None:
     assert '"max_depth": 2' in stdout
 
 
+def test_retrieve_command_without_service_hint(monkeypatch) -> None:
+    exit_code, stdout, _, _ = _run_main(
+        monkeypatch,
+        [
+            "retrieve",
+            "--question",
+            "What breaks if Identity Service is down?",
+        ],
+    )
+
+    assert exit_code == 0
+    assert '"command": "retrieve"' in stdout
+    assert '"service_name": null' in stdout
+
+
 def test_cli_returns_json_error_payload(monkeypatch) -> None:
     exit_code, _, stderr, repository = _run_main(
         monkeypatch,

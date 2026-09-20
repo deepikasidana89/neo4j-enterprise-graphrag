@@ -67,6 +67,12 @@ class Neo4jGraphRepository:
     def close(self) -> None:
         self._driver.close()
 
+    def verify_connectivity(self) -> None:
+        try:
+            self._driver.verify_connectivity()
+        except (Neo4jError, DriverError) as exc:
+            raise RepositoryError(f"Failed to connect to Neo4j: {exc}") from exc
+
     def initialize_graph(self, graph: EnterpriseGraph, reset: bool = False) -> float:
         payload = graph.to_payload()
         started = time.perf_counter()

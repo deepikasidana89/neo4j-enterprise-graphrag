@@ -142,7 +142,7 @@ def _wait_for_connectivity(repository: Neo4jGraphRepository) -> None:
     deadline = time.time() + 90
     while True:
         try:
-            repository._driver.verify_connectivity()
+            repository.verify_connectivity()
             return
         except Exception:
             if time.time() >= deadline:
