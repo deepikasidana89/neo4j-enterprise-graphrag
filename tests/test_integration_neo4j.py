@@ -8,6 +8,7 @@ import time
 import uuid
 from contextlib import closing
 from dataclasses import dataclass
+from typing import Iterator
 
 import pytest
 
@@ -37,6 +38,11 @@ class IntegrationContext:
     config: Neo4jConfig
 
 
+@dataclass(frozen=True)
+class ManagedContainer:
+    name: str
+
+
 def _docker_available() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -57,12 +63,49 @@ def _free_port() -> int:
 
 
 @pytest.fixture(scope="module")
-def integration_context() -> IntegrationContext:
+def integration_context() -> Iterator[IntegrationContext]:
     if os.getenv("RUN_NEO4J_INTEGRATION") != "1":
-        pytest.skip("Set RUN_NEO4J_INTEGRATION=1 to run disposable Neo4j integration tests.")
+        pytest.skip("Set RUN_NEO4J_INTEGRATION=1 to run Neo4j integration tests.")
+
+    external_context = _external_integration_context()
+    if external_context is not None:
+        repository, config = external_context
+        try:
+            yield IntegrationContext(repository=repository, config=config)
+        finally:
+            repository.close()
+        return
+
     if not _docker_available():
         pytest.skip("Docker is not available for disposable Neo4j integration tests.")
 
+    repository, config, container = _start_disposable_neo4j()
+    try:
+        yield IntegrationContext(repository=repository, config=config)
+    finally:
+        repository.close()
+        subprocess.run(["docker", "rm", "-f", container.name], check=False)
+
+
+def _external_integration_context() -> tuple[Neo4jGraphRepository, Neo4jConfig] | None:
+    uri = os.getenv("NEO4J_TEST_URI")
+    if not uri:
+        return None
+
+    config = Neo4jConfig(
+        uri,
+        os.getenv("NEO4J_TEST_USERNAME", "neo4j"),
+        os.getenv("NEO4J_TEST_PASSWORD", "test-password"),
+        os.getenv("NEO4J_TEST_DATABASE", "neo4j"),
+        os.getenv("NEO4J_TEST_LOG_LEVEL", "INFO"),
+        os.getenv("NEO4J_TEST_GRAPH_SOURCE", SAMPLE_GRAPH_SOURCE),
+    )
+    repository = Neo4jGraphRepository(config)
+    _wait_for_connectivity(repository)
+    return repository, config
+
+
+def _start_disposable_neo4j() -> tuple[Neo4jGraphRepository, Neo4jConfig, ManagedContainer]:
     bolt_port = _free_port()
     http_port = _free_port()
     container_name = f"neo4j-graphrag-test-{uuid.uuid4().hex[:8]}"
@@ -91,24 +134,20 @@ def integration_context() -> IntegrationContext:
 
     config = Neo4jConfig(f"bolt://127.0.0.1:{bolt_port}", "neo4j", password, "neo4j")
     repository = Neo4jGraphRepository(config)
+    _wait_for_connectivity(repository)
+    return repository, config, ManagedContainer(name=container_name)
 
+
+def _wait_for_connectivity(repository: Neo4jGraphRepository) -> None:
     deadline = time.time() + 90
     while True:
         try:
-            repository._driver.verify_connectivity()
-            break
+            repository.verify_connectivity()
+            return
         except Exception:
             if time.time() >= deadline:
-                repository.close()
-                subprocess.run(["docker", "rm", "-f", container_name], check=False)
-                pytest.fail("Timed out waiting for disposable Neo4j test container.")
+                raise AssertionError("Timed out waiting for Neo4j integration test database.")
             time.sleep(2)
-
-    try:
-        yield IntegrationContext(repository=repository, config=config)
-    finally:
-        repository.close()
-        subprocess.run(["docker", "rm", "-f", container_name], check=False)
 
 
 def test_neo4j_seeding_loads_isolated_sample_graph(
