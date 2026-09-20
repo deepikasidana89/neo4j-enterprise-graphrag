@@ -1,14 +1,16 @@
 # neo4j-enterprise-graphrag
 
-A beginner-friendly enterprise GraphRAG reference implementation built with Python and Neo4j. It models teams, applications, services, and their dependencies in a small synthetic knowledge graph so you can explore multi-hop impact analysis without needing proprietary data or a paid LLM API.
+Educational enterprise GraphRAG reference implementations built with Python and Neo4j. The repository models teams, applications, services, and supporting documents in a synthetic knowledge graph so you can explore multi-hop dependency analysis and relationship-aware retrieval without proprietary data or a paid LLM API.
 
 ## What is included
 
-- Synthetic enterprise graph data for teams, applications, and services
+This repository currently contains two complementary educational implementations:
+
+- `src/enterprise_graphrag`: a minimal, beginner-friendly CLI that can answer impact questions in memory and optionally query Neo4j
+- `src/neo4j_enterprise_graphrag`: a richer Neo4j-focused service and CLI with graph initialization, dependency traversal, ownership lookup, and retrieval demos
+- Sample synthetic enterprise graph data
 - Reusable Cypher queries for multi-hop dependency analysis
-- A Python CLI for natural-language-style dependency questions
-- Optional Neo4j loading and querying through the official Python driver
-- Focused unit tests using the standard library
+- Unit tests plus optional Docker-backed Neo4j integration tests
 
 ## Repository layout
 
@@ -24,28 +26,46 @@ A beginner-friendly enterprise GraphRAG reference implementation built with Pyth
 │   ├── models.py
 │   ├── neo4j_client.py
 │   └── sample_data.py
+├── src/neo4j_enterprise_graphrag
+│   ├── cli.py
+│   ├── config.py
+│   ├── cypher.py
+│   ├── models.py
+│   ├── repository.py
+│   ├── sample_data.py
+│   └── service.py
 └── tests
 ```
 
-## Data model
+## Knowledge graph concepts
 
-The sample graph uses three node types:
+Across the two examples, the synthetic graph uses these core node types:
 
 - `Team`
 - `Application`
 - `Service`
+- `Document`
 
-And two relationship types:
+And these relationship types:
 
-- `(:Application)-[:DEPENDS_ON]->(:Service)`
+- `(:Application)-[:DEPENDS_ON]->(:Service)` in the minimal implementation
+- `(:Application)-[:USES_SERVICE]->(:Service)` in the richer Neo4j implementation
 - `(:Service)-[:DEPENDS_ON]->(:Service)`
 - `(:Team)-[:OWNS]->(:Application|:Service)`
+- `(:Document)-[:DESCRIBES]->(:Service)`
 
-This lets you answer questions such as:
+Representative questions include:
 
 - Which applications are impacted if `Identity Service` fails?
-- Which dependency paths connect an application to a shared platform service?
-- Which teams own the applications and services in a dependency chain?
+- Which services depend on `Billing Service` within three hops?
+- Which teams own the services in a dependency path?
+- Which documents provide supporting evidence for a retrieval answer?
+
+## Prerequisites
+
+- Python 3.11+
+- Optional: a running Neo4j instance for live graph loading and queries
+- Optional: Docker for disposable integration tests
 
 ## Setup
 
@@ -60,6 +80,7 @@ source .venv/bin/activate
 
 ```bash
 pip install -e .
+pip install -e .[dev]
 ```
 
 ### 3. Optional: configure Neo4j
@@ -68,61 +89,89 @@ Copy the sample environment file and update it for your local Neo4j instance:
 
 ```bash
 cp .env.example .env
+set -a
+source .env
+set +a
 ```
 
-Environment variables used by the CLI:
+Environment variables used by the Neo4j-backed examples:
 
 - `NEO4J_URI`
 - `NEO4J_USERNAME`
 - `NEO4J_PASSWORD`
 - `NEO4J_DATABASE` (defaults to `neo4j`)
+- `NEO4J_LOG_LEVEL` (used by `neo4j_enterprise_graphrag`)
+- `NEO4J_GRAPH_SOURCE` (used to isolate seeded sample graphs in Neo4j)
 
-> The basic demo works without Neo4j because the CLI can analyze the bundled synthetic graph in memory.
+> The minimal `enterprise_graphrag` demo works without Neo4j because it can analyze the bundled synthetic graph in memory.
+
+### 4. Optional: run Neo4j locally with Docker
+
+```bash
+docker run \
+  --name neo4j-graphrag \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/please-change-me \
+  neo4j:5
+```
 
 ## CLI usage
 
-### Analyze impact in memory
+### Minimal beginner-friendly CLI
+
+Analyze impact in memory:
 
 ```bash
 python -m enterprise_graphrag impacted-apps --service "Identity Service"
 ```
 
-Example output:
-
-```text
-Applications impacted by Identity Service:
-- Finance Dashboard
-- Sales Portal
-- Support Hub
-```
-
-### Ask a natural-language-style question
+Ask a supported natural-language-style question:
 
 ```bash
 python -m enterprise_graphrag ask "Which applications are impacted if Notification Service fails?"
 ```
 
-### Load the synthetic graph into Neo4j
+Load the synthetic graph into Neo4j:
 
 ```bash
 python -m enterprise_graphrag seed-neo4j
 ```
 
-### Query Neo4j instead of the in-memory graph
-
-```bash
-python -m enterprise_graphrag impacted-apps --service "Identity Service" --backend neo4j
-```
-
-### Show the bundled Cypher queries
+Show the bundled Cypher queries:
 
 ```bash
 python -m enterprise_graphrag show-cypher
 ```
 
+### Rich Neo4j-oriented CLI
+
+Initialize the graph:
+
+```bash
+python -m neo4j_enterprise_graphrag init-graph --reset
+```
+
+Inspect service dependencies:
+
+```bash
+python -m neo4j_enterprise_graphrag service --name "Customer API" --max-depth 4
+```
+
+Find impacted applications:
+
+```bash
+python -m neo4j_enterprise_graphrag impact --name "Identity Service" --max-depth 4
+```
+
+Run the retrieval demo:
+
+```bash
+python -m neo4j_enterprise_graphrag retrieve --question "What breaks if Identity Service is down?"
+```
+
 ## Key Cypher query
 
-The core impact-analysis query follows dependency paths of any length:
+One core impact-analysis query follows dependency paths of any length:
 
 ```cypher
 MATCH (failed:Service {name: $service_name})
@@ -133,17 +182,29 @@ ORDER BY hops, application
 
 ## Testing
 
-Run the focused unit tests with:
+Run the minimal implementation's unit tests with the standard library:
 
 ```bash
-python -m unittest discover -s tests -v
+PYTHONPATH=src python -m unittest discover -s tests -v
+```
+
+Run the pytest-based suite for the richer implementation:
+
+```bash
+pytest
+```
+
+Run optional disposable Neo4j integration tests:
+
+```bash
+RUN_NEO4J_INTEGRATION=1 pytest -m integration
 ```
 
 ## Educational goals
 
-This project is intentionally small and modular so it is easy to extend with:
+This repository is intentionally modular so contributors can extend it with:
 
-- Retrieval pipelines that ground answers in graph evidence
-- Additional Cypher templates
-- More node types such as databases, APIs, or business capabilities
-- A UI or notebook walkthrough for GraphRAG experimentation
+- More Cypher templates for service impact analysis
+- Additional node types such as databases, APIs, or business capabilities
+- Retrieval strategies that combine graph context with local or open-source language models
+- UI, notebook, or tutorial walkthroughs for GraphRAG experimentation
