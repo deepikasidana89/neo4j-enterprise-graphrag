@@ -1,31 +1,26 @@
 # neo4j-enterprise-graphrag
 
-Educational enterprise GraphRAG reference implementations built with Python and Neo4j. The repository models teams, applications, services, and supporting documents in a synthetic knowledge graph so you can explore multi-hop dependency analysis and relationship-aware retrieval without proprietary data or a paid LLM API.
+Educational enterprise GraphRAG reference implementation built with Python and Neo4j. The repository models teams, applications, services, and supporting documents in a synthetic knowledge graph so you can explore multi-hop dependency analysis and relationship-aware retrieval without proprietary data or a paid LLM API.
 
 ## What is included
 
-This repository currently contains two complementary educational implementations:
+This repository contains one Neo4j-focused reference implementation under `src/neo4j_enterprise_graphrag` with:
 
-- `src/enterprise_graphrag`: a minimal, beginner-friendly CLI that can answer impact questions in memory and optionally query Neo4j
-- `src/neo4j_enterprise_graphrag`: a richer Neo4j-focused service and CLI with graph initialization, dependency traversal, ownership lookup, and retrieval demos
-- Sample synthetic enterprise graph data
-- Reusable Cypher queries for multi-hop dependency analysis
-- Unit tests plus optional Docker-backed Neo4j integration tests
+- graph initialization for a synthetic enterprise dataset
+- service dependency traversal and path discovery
+- impacted application analysis with dependency evidence paths
+- ownership lookup for services
+- graph-aware document retrieval
+- `graph_source` isolation for seeded datasets
+- unit tests plus Neo4j integration tests
 
 ## Repository layout
 
 ```text
 .
 ├── .env.example
+├── .github/workflows/tests.yml
 ├── pyproject.toml
-├── src/enterprise_graphrag
-│   ├── analysis.py
-│   ├── cli.py
-│   ├── config.py
-│   ├── cypher.py
-│   ├── models.py
-│   ├── neo4j_client.py
-│   └── sample_data.py
 ├── src/neo4j_enterprise_graphrag
 │   ├── cli.py
 │   ├── config.py
@@ -37,9 +32,43 @@ This repository currently contains two complementary educational implementations
 └── tests
 ```
 
+## Architecture diagram
+
+```mermaid
+flowchart LR
+    CLI[neo4j-graphrag CLI] --> Service[EnterpriseGraphRAGService]
+    Service --> Repo[Neo4jGraphRepository]
+    Repo --> Neo4j[(Neo4j)]
+    Service --> Sample[Sample graph seed data]
+    Service --> Retrieval[Keyword + graph retrieval]
+    Retrieval --> Docs[Documents]
+    Retrieval --> Graph[Services, applications, teams]
+```
+
+## Graph visualization
+
+```mermaid
+graph LR
+    CWP[Customer Web Portal] -->|USES_SERVICE| CAPI[Customer API]
+    Mobile[Mobile App] -->|USES_SERVICE| CAPI
+    Mobile -->|USES_SERVICE| Search[Search Service]
+    Partner[Partner Dashboard] -->|USES_SERVICE| Billing[Billing Service]
+    CAPI -->|DEPENDS_ON| Identity[Identity Service]
+    CAPI -->|DEPENDS_ON| Billing
+    CAPI -->|DEPENDS_ON| Order[Order Service]
+    Search -->|DEPENDS_ON| Identity
+    Billing -->|DEPENDS_ON| Identity
+    Order -->|DEPENDS_ON| Inventory[Inventory Service]
+    Order -->|DEPENDS_ON| Notify[Notification Service]
+    Notify -->|DEPENDS_ON| Identity
+    Platform[Platform Team] -->|OWNS| Identity
+    Commerce[Commerce Team] -->|OWNS| Billing
+    Experience[Experience Team] -->|OWNS| CAPI
+```
+
 ## Knowledge graph concepts
 
-Across the two examples, the synthetic graph uses these core node types:
+The synthetic graph uses these core node types:
 
 - `Team`
 - `Application`
@@ -48,10 +77,9 @@ Across the two examples, the synthetic graph uses these core node types:
 
 And these relationship types:
 
-- `(:Application)-[:DEPENDS_ON]->(:Service)` in the minimal implementation
-- `(:Application)-[:USES_SERVICE]->(:Service)` in the richer Neo4j implementation
+- `(:Application)-[:USES_SERVICE]->(:Service)`
 - `(:Service)-[:DEPENDS_ON]->(:Service)`
-- `(:Team)-[:OWNS]->(:Application|:Service)`
+- `(:Team)-[:OWNS]->(:Service)`
 - `(:Document)-[:DESCRIBES]->(:Service)`
 
 Representative questions include:
@@ -61,11 +89,25 @@ Representative questions include:
 - Which teams own the services in a dependency path?
 - Which documents provide supporting evidence for a retrieval answer?
 
+## Retrieval scope
+
+Implemented today:
+
+- local keyword matching across bundled documents
+- graph expansion to related services, owners, dependencies, and impacted applications
+- evidence-rich responses that include supporting documents and graph context
+
+Future GraphRAG extensions:
+
+- vector or embedding search for semantic document retrieval
+- LLM-assisted answer synthesis over retrieved graph and document context
+- hybrid ranking that combines semantic, keyword, and graph signals
+
 ## Prerequisites
 
 - Python 3.11+
 - Optional: a running Neo4j instance for live graph loading and queries
-- Optional: Docker for disposable integration tests
+- Optional: Docker for disposable integration tests outside CI
 
 ## Setup
 
@@ -79,8 +121,7 @@ source .venv/bin/activate
 ### 2. Install the project
 
 ```bash
-pip install -e .
-pip install -e .[dev]
+pip install -e ".[dev]"
 ```
 
 ### 3. Optional: configure Neo4j
@@ -94,16 +135,14 @@ source .env
 set +a
 ```
 
-Environment variables used by the Neo4j-backed examples:
+Environment variables used by the CLI:
 
 - `NEO4J_URI`
 - `NEO4J_USERNAME`
 - `NEO4J_PASSWORD`
 - `NEO4J_DATABASE` (defaults to `neo4j`)
-- `NEO4J_LOG_LEVEL` (used by `neo4j_enterprise_graphrag`)
+- `NEO4J_LOG_LEVEL`
 - `NEO4J_GRAPH_SOURCE` (used to isolate seeded sample graphs in Neo4j)
-
-> The minimal `enterprise_graphrag` demo works without Neo4j because it can analyze the bundled synthetic graph in memory.
 
 ### 4. Optional: run Neo4j locally with Docker
 
@@ -117,94 +156,71 @@ docker run \
 
 ## CLI usage
 
-### Minimal beginner-friendly CLI
-
-Analyze impact in memory:
-
-```bash
-python -m enterprise_graphrag impacted-apps --service "Identity Service"
-```
-
-Ask a supported natural-language-style question:
-
-```bash
-python -m enterprise_graphrag ask "Which applications are impacted if Notification Service fails?"
-```
-
-Load the synthetic graph into Neo4j:
-
-```bash
-python -m enterprise_graphrag seed-neo4j
-```
-
-Show the bundled Cypher queries:
-
-```bash
-python -m enterprise_graphrag show-cypher
-```
-
-### Rich Neo4j-oriented CLI
-
 Initialize the graph:
 
 ```bash
-python -m neo4j_enterprise_graphrag init-graph --reset
+neo4j-graphrag init-graph --reset
 ```
 
 Inspect service dependencies:
 
 ```bash
-python -m neo4j_enterprise_graphrag service --name "Customer API" --max-depth 4
+neo4j-graphrag service --name "Customer API" --max-depth 4
 ```
 
 Find impacted applications:
 
 ```bash
-python -m neo4j_enterprise_graphrag impact --name "Identity Service" --max-depth 4
+neo4j-graphrag impact --name "Identity Service" --max-depth 4
+```
+
+Find dependency evidence paths:
+
+```bash
+neo4j-graphrag paths --source "Customer API" --target "Identity Service"
+```
+
+Look up owners:
+
+```bash
+neo4j-graphrag owners --name "Identity Service"
 ```
 
 Run the retrieval demo:
 
 ```bash
-python -m neo4j_enterprise_graphrag retrieve --question "What breaks if Identity Service is down?"
-```
-
-## Key Cypher query
-
-One core impact-analysis query follows dependency paths of any length:
-
-```cypher
-MATCH (failed:Service {name: $service_name})
-MATCH path = (application:Application)-[:DEPENDS_ON*1..]->(failed)
-RETURN DISTINCT application.name AS application, length(path) AS hops
-ORDER BY hops, application
+neo4j-graphrag retrieve --question "What breaks if Identity Service is down?"
 ```
 
 ## Testing
 
-Run the minimal implementation's unit tests with the standard library:
+Run the unit suite:
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
+pytest -m "not integration"
 ```
 
-Run the pytest-based suite for the richer implementation:
-
-```bash
-pytest
-```
-
-Run optional disposable Neo4j integration tests:
+Run Neo4j integration tests against a local or CI-provided Neo4j instance:
 
 ```bash
 RUN_NEO4J_INTEGRATION=1 pytest -m integration
+```
+
+If you already have a Neo4j test instance running, you can point the integration suite at it:
+
+```bash
+RUN_NEO4J_INTEGRATION=1 \
+NEO4J_TEST_URI=bolt://127.0.0.1:7687 \
+NEO4J_TEST_USERNAME=neo4j \
+NEO4J_TEST_PASSWORD=test-password \
+pytest -m integration
 ```
 
 ## Educational goals
 
 This repository is intentionally modular so contributors can extend it with:
 
-- More Cypher templates for service impact analysis
-- Additional node types such as databases, APIs, or business capabilities
-- Retrieval strategies that combine graph context with local or open-source language models
+- more Cypher templates for service impact analysis
+- additional node types such as databases, APIs, or business capabilities
+- vector, embedding, and LLM-powered retrieval components beyond the implemented keyword + graph workflow
 - UI, notebook, or tutorial walkthroughs for GraphRAG experimentation
