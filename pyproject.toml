@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "neo4j-enterprise-graphrag"
 version = "0.1.0"
-description = "Reference implementation of enterprise GraphRAG with Neo4j."
+description = "Educational enterprise GraphRAG reference implementations using Neo4j."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Open Source Contributors" }]
 dependencies = [
-  "neo4j>=5.23,<6",
+  "neo4j>=6.3.1,<7",
 ]
 
 [project.optional-dependencies]
@@ -20,6 +20,7 @@ dev = [
 ]
 
 [project.scripts]
+enterprise-graphrag = "enterprise_graphrag.cli:main"
 neo4j-graphrag = "neo4j_enterprise_graphrag.cli:main"
 
 [tool.pytest.ini_options]
@@ -30,7 +31,7 @@ markers = [
 ]
 
 [tool.setuptools]
-package-dir = { "" = "src" }
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

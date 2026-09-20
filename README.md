@@ -1,97 +1,111 @@
 # neo4j-enterprise-graphrag
 
-Reference implementation of enterprise GraphRAG with Neo4j for relationship-aware retrieval, service dependency analysis, and evidence-backed impact assessment.
+Educational enterprise GraphRAG reference implementations built with Python and Neo4j. The repository models teams, applications, services, and supporting documents in a synthetic knowledge graph so you can explore multi-hop dependency analysis and relationship-aware retrieval without proprietary data or a paid LLM API.
 
-## Project overview
+## What is included
 
-This project demonstrates how a knowledge graph helps answer enterprise questions that require multi-hop reasoning, not just document similarity.
+This repository currently contains two complementary educational implementations:
 
-Primary use case:
-
-> Which customer-facing applications could be affected if a service becomes unavailable?
-
-The implementation ships with:
-
-- a synthetic enterprise knowledge graph
-- parameterized Neo4j Cypher queries
-- a Python CLI for graph initialization and analysis
-- a graph-based retrieval demo that works without a paid LLM API
-- automated tests for dependency and impact scenarios
-
-## Architecture
-
-```mermaid
-flowchart TD
-    CLI[Python CLI] --> Service[EnterpriseGraphRAGService]
-    Service --> Repo[Neo4jGraphRepository]
-    Service --> MemoryRepo[InMemoryGraphRepository for tests]
-    Repo --> Neo4j[(Neo4j Database)]
-    Service --> Retrieval[Keyword document retrieval + graph traversal]
-    Retrieval --> Docs[Document nodes]
-    Retrieval --> Graph[Service, Application, Team nodes]
-```
-
-## Knowledge graph visualization
-
-```mermaid
-graph LR
-    App1[Customer Web Portal] -->|USES_SERVICE| API[Customer API]
-    App2[Mobile App] -->|USES_SERVICE| API
-    App2 -->|USES_SERVICE| Search[Search Service]
-    API -->|DEPENDS_ON| Identity[Identity Service]
-    API -->|DEPENDS_ON| Billing[Billing Service]
-    API -->|DEPENDS_ON| Order[Order Service]
-    Order -->|DEPENDS_ON| Inventory[Inventory Service]
-    Order -->|DEPENDS_ON| Notify[Notification Service]
-    Billing -->|DEPENDS_ON| Identity
-    Notify -->|DEPENDS_ON| Identity
-    Team1[Experience Team] -->|OWNS| API
-    Team2[Commerce Team] -->|OWNS| Billing
-    Team3[Platform Team] -->|OWNS| Identity
-    Doc1[Customer API Dependency Overview] -->|DESCRIBES| API
-    Doc2[Identity Service Runbook] -->|DESCRIBES| Identity
-```
-
-## Knowledge graph schema
-
-### Node labels
-
-- `Service` - enterprise services and APIs
-- `Application` - consuming applications
-- `Team` - owning teams
-- `Document` - supporting operational or architecture documents
-
-### Relationships
-
-- `(:Service)-[:DEPENDS_ON]->(:Service)`
-- `(:Application)-[:USES_SERVICE]->(:Service)`
-- `(:Team)-[:OWNS]->(:Service)`
-- `(:Document)-[:DESCRIBES]->(:Service)`
+- `src/enterprise_graphrag`: a minimal, beginner-friendly CLI that can answer impact questions in memory and optionally query Neo4j
+- `src/neo4j_enterprise_graphrag`: a richer Neo4j-focused service and CLI with graph initialization, dependency traversal, ownership lookup, and retrieval demos
+- Sample synthetic enterprise graph data
+- Reusable Cypher queries for multi-hop dependency analysis
+- Unit tests plus optional Docker-backed Neo4j integration tests
 
 ## Repository layout
 
 ```text
-src/neo4j_enterprise_graphrag/
-  cli.py
-  config.py
-  cypher.py
-  models.py
-  repository.py
-  sample_data.py
-  service.py
-tests/
-  test_service.py
-  test_integration_neo4j.py
+.
+├── .env.example
+├── pyproject.toml
+├── src/enterprise_graphrag
+│   ├── analysis.py
+│   ├── cli.py
+│   ├── config.py
+│   ├── cypher.py
+│   ├── models.py
+│   ├── neo4j_client.py
+│   └── sample_data.py
+├── src/neo4j_enterprise_graphrag
+│   ├── cli.py
+│   ├── config.py
+│   ├── cypher.py
+│   ├── models.py
+│   ├── repository.py
+│   ├── sample_data.py
+│   └── service.py
+└── tests
 ```
+
+## Knowledge graph concepts
+
+Across the two examples, the synthetic graph uses these core node types:
+
+- `Team`
+- `Application`
+- `Service`
+- `Document`
+
+And these relationship types:
+
+- `(:Application)-[:DEPENDS_ON]->(:Service)` in the minimal implementation
+- `(:Application)-[:USES_SERVICE]->(:Service)` in the richer Neo4j implementation
+- `(:Service)-[:DEPENDS_ON]->(:Service)`
+- `(:Team)-[:OWNS]->(:Application|:Service)`
+- `(:Document)-[:DESCRIBES]->(:Service)`
+
+Representative questions include:
+
+- Which applications are impacted if `Identity Service` fails?
+- Which services depend on `Billing Service` within three hops?
+- Which teams own the services in a dependency path?
+- Which documents provide supporting evidence for a retrieval answer?
 
 ## Prerequisites
 
 - Python 3.11+
-- A running Neo4j 5.x instance
+- Optional: a running Neo4j instance for live graph loading and queries
+- Optional: Docker for disposable integration tests
 
-## Neo4j setup instructions
+## Setup
 
-You can run Neo4j locally with Docker:
+### 1. Create a virtual environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install the project
+
+```bash
+pip install -e .
+pip install -e .[dev]
+```
+
+### 3. Optional: configure Neo4j
+
+Copy the sample environment file and update it for your local Neo4j instance:
+
+```bash
+cp .env.example .env
+set -a
+source .env
+set +a
+```
+
+Environment variables used by the Neo4j-backed examples:
+
+- `NEO4J_URI`
+- `NEO4J_USERNAME`
+- `NEO4J_PASSWORD`
+- `NEO4J_DATABASE` (defaults to `neo4j`)
+- `NEO4J_LOG_LEVEL` (used by `neo4j_enterprise_graphrag`)
+- `NEO4J_GRAPH_SOURCE` (used to isolate seeded sample graphs in Neo4j)
+
+> The minimal `enterprise_graphrag` demo works without Neo4j because it can analyze the bundled synthetic graph in memory.
+
+### 4. Optional: run Neo4j locally with Docker
 
 ```bash
 docker run \
@@ -101,205 +115,96 @@ docker run \
   neo4j:5
 ```
 
-Set environment variables:
+## CLI usage
+
+### Minimal beginner-friendly CLI
+
+Analyze impact in memory:
 
 ```bash
-cp .env.example .env
-# edit .env as needed, then export it into your shell
-set -a
-source .env
-set +a
+python -m enterprise_graphrag impacted-apps --service "Identity Service"
 ```
 
-`NEO4J_GRAPH_SOURCE` is optional and defaults to the sample dataset name. Set it to a unique value when you want to isolate concurrent or side-by-side sample loads in the same Neo4j database.
-
-## Installation instructions
+Ask a supported natural-language-style question:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+python -m enterprise_graphrag ask "Which applications are impacted if Notification Service fails?"
 ```
 
-## Local run instructions
-
-1. Start Neo4j.
-2. Set the `NEO4J_*` environment variables.
-3. Initialize the sample graph:
-
-   ```bash
-   neo4j-graphrag init-graph --reset
-   ```
-
-4. Run example queries:
-
-   ```bash
-   neo4j-graphrag service --name "Customer API"
-   neo4j-graphrag impact --name "Identity Service"
-   neo4j-graphrag impact --name "Identity Service" --max-depth 4
-   neo4j-graphrag paths --source "Customer API" --target "Identity Service"
-   neo4j-graphrag owners --name "Billing Service"
-   neo4j-graphrag retrieve --question "Which customer-facing applications are affected if Identity Service fails?"
-   ```
-
-## Example commands
+Load the synthetic graph into Neo4j:
 
 ```bash
-neo4j-graphrag init-graph --reset
-neo4j-graphrag service --name "Customer API" --max-depth 4
-neo4j-graphrag impact --name "Identity Service" --max-depth 4
-neo4j-graphrag paths --source "Customer API" --target "Notification Service"
-neo4j-graphrag retrieve --question "Show documents and graph evidence for Identity Service outage impact."
+python -m enterprise_graphrag seed-neo4j
 ```
 
-## Example output
+Show the bundled Cypher queries:
 
-```json
-{
-  "service": "Identity Service",
-  "impacted_applications": [
-    {
-      "application": "Customer Web Portal",
-      "dependent_service": "Customer API",
-      "service_path": ["Customer API", "Identity Service"],
-      "dependency_paths": [
-        ["Customer API", "Identity Service"],
-        ["Customer API", "Billing Service", "Identity Service"],
-        ["Customer API", "Order Service", "Notification Service", "Identity Service"]
-      ],
-      "hops": 1
-    },
-    {
-      "application": "Mobile App",
-      "dependent_service": "Customer API",
-      "service_path": ["Customer API", "Identity Service"],
-      "dependency_paths": [
-        ["Customer API", "Identity Service"],
-        ["Customer API", "Billing Service", "Identity Service"],
-        ["Customer API", "Order Service", "Notification Service", "Identity Service"]
-      ],
-      "hops": 1
-    },
-    {
-      "application": "Mobile App",
-      "dependent_service": "Search Service",
-      "service_path": ["Search Service", "Identity Service"],
-      "dependency_paths": [["Search Service", "Identity Service"]],
-      "hops": 1
-    },
-    {
-      "application": "Partner Dashboard",
-      "dependent_service": "Billing Service",
-      "service_path": ["Billing Service", "Identity Service"],
-      "dependency_paths": [["Billing Service", "Identity Service"]],
-      "hops": 1
-    }
-  ],
-  "duration_ms": 3.2
-}
+```bash
+python -m enterprise_graphrag show-cypher
 ```
 
-## Dependency-path output example
+### Rich Neo4j-oriented CLI
 
-When multiple chains lead to the same impacted application, the CLI returns the shortest `service_path` plus all discovered `dependency_paths`:
+Initialize the graph:
 
-```json
-{
-  "application": "Customer App",
-  "dependent_service": "Customer API",
-  "service_path": [
-    "Customer API",
-    "Order Service",
-    "Billing Service",
-    "Identity Service"
-  ],
-  "dependency_paths": [
-    ["Customer API", "Order Service", "Billing Service", "Identity Service"],
-    ["Customer API", "Order Service", "Notification Service", "Identity Service"]
-  ],
-  "hops": 3
-}
+```bash
+python -m neo4j_enterprise_graphrag init-graph --reset
 ```
 
-## Implemented Cypher queries
+Inspect service dependencies:
 
-- Direct dependencies
-- Multi-hop dependencies
-- Downstream application impact analysis
-- Dependency path discovery
-- Service ownership lookup
-- Document retrieval with graph expansion
+```bash
+python -m neo4j_enterprise_graphrag service --name "Customer API" --max-depth 4
+```
 
-All queries are defined in `src/neo4j_enterprise_graphrag/cypher.py` and executed with parameters.
+Find impacted applications:
 
-## Implemented graph retrieval vs future GraphRAG extensions
+```bash
+python -m neo4j_enterprise_graphrag impact --name "Identity Service" --max-depth 4
+```
 
-### Implemented today
+Run the retrieval demo:
 
-- keyword-based document retrieval over synthetic `Document` nodes
-- graph traversal over `Service`, `Application`, and `Team` relationships
-- evidence-backed dependency and impact answers with explicit path output
-- no paid LLM or embedding service required
+```bash
+python -m neo4j_enterprise_graphrag retrieve --question "What breaks if Identity Service is down?"
+```
 
-### Not implemented yet
+## Key Cypher query
 
-- vector search or embedding indexes
-- LLM answer synthesis over retrieved graph/document context
-- hybrid vector + graph ranking
+One core impact-analysis query follows dependency paths of any length:
 
-Traditional vector RAG can retrieve documents that mention a service outage, but it does not naturally explain transitive impact across application and service relationships.
+```cypher
+MATCH (failed:Service {name: $service_name})
+MATCH path = (application:Application)-[:DEPENDS_ON*1..]->(failed)
+RETURN DISTINCT application.name AS application, length(path) AS hops
+ORDER BY hops, application
+```
 
-This project demonstrates a graph-first retrieval workflow:
+## Testing
 
-1. retrieve supporting documents by local keyword overlap
-2. identify related service nodes
-3. traverse the knowledge graph for owners, dependencies, and impacted applications
-4. return evidence paths that explain why an application is affected
+Run the minimal implementation's unit tests with the standard library:
 
-This makes relationship paths explicit and auditable, which is critical for dependency analysis and operational decision support.
+```bash
+PYTHONPATH=src python -m unittest discover -s tests -v
+```
 
-## Reliability and engineering considerations
-
-- Neo4j configuration is provided through environment variables
-- all Cypher execution uses parameters
-- CLI and service inputs are validated
-- missing services return clear errors
-- empty query results are returned explicitly instead of failing
-- execution timing is returned for query operations
-- logging is configurable with `NEO4J_LOG_LEVEL`
-- sample graph loading is idempotent because node and relationship creation uses `MERGE`
-
-## Automated tests
-
-Run:
+Run the pytest-based suite for the richer implementation:
 
 ```bash
 pytest
 ```
 
-Optional disposable-Neo4j integration tests:
+Run optional disposable Neo4j integration tests:
 
 ```bash
-RUN_NEO4J_INTEGRATION=1 pytest
+RUN_NEO4J_INTEGRATION=1 pytest -m integration
 ```
 
-The default suite validates traversal logic and service behavior with the in-memory repository. The optional integration suite starts a disposable Neo4j container with Docker and verifies graph seeding plus impact-query behavior against the live driver.
+## Educational goals
 
-## Known limitations
+This repository is intentionally modular so contributors can extend it with:
 
-- The CLI does not infer complex entities beyond exact service-name matches in questions.
-- The retrieval demo uses keyword overlap rather than embeddings.
-- Disposable Neo4j integration tests require Docker and are skipped unless explicitly enabled.
-
-## Future enhancements
-
-- optional vector indexing and embedding-based retrieval
-- richer natural language entity extraction
-- graph visualization output for impact paths
-- LLM-generated summaries grounded in graph traversal results
-
-## Security and data hygiene
-
-- The repository uses synthetic enterprise entities only.
-- No proprietary company references or credentials are included.
-- `.env` files are ignored; use `.env.example` as the template.
+- More Cypher templates for service impact analysis
+- Additional node types such as databases, APIs, or business capabilities
+- Retrieval strategies that combine graph context with local or open-source language models
+- UI, notebook, or tutorial walkthroughs for GraphRAG experimentation
